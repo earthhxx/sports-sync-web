@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authService } from '@/services/auth.service';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Shield, Key, Eye, EyeOff, Mail } from 'lucide-react';
+import { Dialog } from '@/components/ui/dialog';
+import { Shield, Key, Eye, EyeOff, AlertTriangle, RefreshCw, Mail } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Login() {
@@ -27,6 +28,21 @@ export default function Login() {
   // 2FA state management
   const [requires2FA, setRequires2FA] = useState(false);
   const [tempToken, setTempToken] = useState<string | null>(null);
+
+  // Email verification banner state
+  const [showVerificationBanner, setShowVerificationBanner] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -50,6 +66,10 @@ export default function Login() {
     if (errors[id]) {
       setErrors((prev) => ({ ...prev, [id]: '' }));
     }
+    // Hide banner when user changes input
+    if (showVerificationBanner) {
+      setShowVerificationBanner(false);
+    }
   };
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
@@ -57,6 +77,7 @@ export default function Login() {
     if (!validateForm()) return;
 
     setIsLoading(true);
+    setShowVerificationBanner(false);
     try {
       const data = await authService.login(formData);
 
@@ -70,13 +91,38 @@ export default function Login() {
         showToast('success', 'Logged in successfully!');
         router.push('/');
       }
-    } catch (err: any) {
-      const errMsg = err.response?.data?.message || 'Invalid credentials';
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      const errMsg = error.response?.data?.message || 'Login failed. Please try again.';
+
+      // Check if error is about email verification
+      if (errMsg.toLowerCase().includes('verify your email') || errMsg.toLowerCase().includes('email has not been verified')) {
+        setShowVerificationBanner(true);
+        setShowVerificationModal(true);
+      }
+
       showToast('error', errMsg);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleResendVerification = useCallback(async () => {
+    if (!formData.email || resendCooldown > 0) return;
+
+    setIsResending(true);
+    try {
+      await authService.resendVerification(formData.email);
+      showToast('success', 'Verification email sent successfully!');
+      setResendCooldown(60);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      const errMsg = error.response?.data?.message || 'Failed to resend verification email.';
+      showToast('error', errMsg);
+    } finally {
+      setIsResending(false);
+    }
+  }, [formData.email, resendCooldown, showToast]);
 
   const handleOTPSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,8 +138,9 @@ export default function Login() {
       login(data.access_token, data.refresh_token, data.user);
       showToast('success', 'Authenticated successfully!');
       router.push('/');
-    } catch (err: any) {
-      const errMsg = err.response?.data?.message || 'Invalid verification code';
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      const errMsg = error.response?.data?.message || 'Invalid verification code';
       showToast('error', errMsg);
     } finally {
       setIsLoading(false);
@@ -124,6 +171,36 @@ export default function Login() {
 
         {/* Card Form */}
         <div className="glass-panel rounded-xl p-8 shadow-2xl relative">
+          {/* Email Verification Banner */}
+          {showVerificationBanner && !requires2FA && (
+            <div className="mb-6 p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 animate-in slide-in-from-top-2 fade-in duration-300">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-300">
+                    Email not verified
+                  </p>
+                  <p className="text-xs text-amber-400/70 mt-1">
+                    Please verify your email before logging in. Check your inbox for the verification link.
+                  </p>
+                  <Button
+                    onClick={handleResendVerification}
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-0"
+                    disabled={resendCooldown > 0 || isResending}
+                    isLoading={isResending}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                    {resendCooldown > 0
+                      ? `Resend available in ${resendCooldown}s`
+                      : 'Resend Verification Email'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {!requires2FA ? (
             // CREDENTIALS LOGIN FORM
             <form className="space-y-6" onSubmit={handleCredentialsSubmit}>
@@ -209,7 +286,7 @@ export default function Login() {
           )}
 
           <div className="mt-6 text-center text-sm border-t border-slate-900/60 pt-4">
-            <span className="text-slate-400">Don't have an account? </span>
+            <span className="text-slate-400">Don&apos;t have an account? </span>
             <Link
               href="/register"
               className="font-medium text-teal-400 hover:text-teal-300 hover:underline transition-colors"
@@ -219,6 +296,32 @@ export default function Login() {
           </div>
         </div>
       </div>
+
+      {/* Verification Sent Dialog */}
+      <Dialog
+        isOpen={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        title="Verification Link Sent"
+      >
+        <div className="flex flex-col items-center text-center gap-6 py-4">
+          <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.2)] animate-bounce">
+            <Mail className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold text-slate-100">Check Your Inbox</h3>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Your email has not been verified yet. A new verification link has been automatically sent to your email inbox. Please verify before logging in.
+            </p>
+          </div>
+          <Button
+            onClick={() => setShowVerificationModal(false)}
+            variant="secondary"
+            className="w-full py-2.5 mt-2"
+          >
+            Got It
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

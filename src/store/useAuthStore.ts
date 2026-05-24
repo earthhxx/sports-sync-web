@@ -11,7 +11,7 @@ interface AuthState {
   logout: () => void;
   updateUser: (user: Partial<User>) => void;
   setAccessToken: (token: string) => void;
-  initialize: () => void;
+  initialize: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -25,9 +25,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     Cookies.set('access_token', accessToken, { expires: 15 / (24 * 60), secure: true, sameSite: 'strict' });
     Cookies.set('refresh_token', refreshToken, { expires: 7, secure: true, sameSite: 'strict' });
 
-    // Set localStorage for profile data
-    localStorage.setItem('user_profile', JSON.stringify(user));
-
     set({
       accessToken,
       user,
@@ -39,21 +36,21 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     Cookies.remove('access_token');
     Cookies.remove('refresh_token');
-    localStorage.removeItem('user_profile');
     set({
       accessToken: null,
       user: null,
       isAuthenticated: false,
       isLoading: false,
     });
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
   },
 
   updateUser: (updatedFields) => {
     set((state) => {
       if (!state.user) return state;
-      const newUser = { ...state.user, ...updatedFields };
-      localStorage.setItem('user_profile', JSON.stringify(newUser));
-      return { user: newUser };
+      return { user: { ...state.user, ...updatedFields } };
     });
   },
 
@@ -62,23 +59,28 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ accessToken: token });
   },
 
-  initialize: () => {
+  initialize: async () => {
     const accessToken = Cookies.get('access_token') || null;
     const refreshToken = Cookies.get('refresh_token') || null;
-    const savedUser = localStorage.getItem('user_profile');
 
-    if (refreshToken && savedUser) {
+    if (accessToken || refreshToken) {
       try {
-        const user = JSON.parse(savedUser) as User;
+        // Dynamically import api client to prevent circular dependencies at module load
+        const { api } = await import('../lib/axios');
+        const response = await api.get('/auth/profile');
+        const user = response.data;
+
         set({
-          accessToken,
+          accessToken: accessToken || Cookies.get('access_token') || null,
           user,
           isAuthenticated: true,
           isLoading: false,
         });
         return;
       } catch (e) {
-        localStorage.removeItem('user_profile');
+        // Clear cookies on fetch failure (invalidated or expired session)
+        Cookies.remove('access_token');
+        Cookies.remove('refresh_token');
       }
     }
 

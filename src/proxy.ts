@@ -8,7 +8,7 @@ export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
-  const isPrivateRoute = pathname === '/' || pathname.startsWith('/dashboard') || pathname.startsWith('/profile') || pathname.startsWith('/admin');
+  const isPrivateRoute = pathname === '/' || pathname.startsWith('/dashboard') || pathname.startsWith('/profile') || pathname.startsWith('/admin') || pathname.startsWith('/calendar') || pathname.startsWith('/schedule-export');
 
   // If trying to access private route and no tokens are present
   if (isPrivateRoute && !accessToken && !refreshToken) {

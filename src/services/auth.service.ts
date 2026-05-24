@@ -50,4 +50,16 @@ export const authService = {
     const response = await api.post('/auth/2fa/turn-off', { code });
     return response.data;
   },
+
+  // Verify email using JWT verification token
+  async verifyEmail(token: string) {
+    const response = await api.post('/auth/verify-email', { token });
+    return response.data;
+  },
+
+  // Resend verification email
+  async resendVerification(email: string) {
+    const response = await api.post('/auth/resend-verification', { email });
+    return response.data;
+  },
 };

@@ -66,3 +66,8 @@
 - **Service Isolation Principle:** ห้ามเรียกใช้ `api` (Axios instance) หรือสั่งยิง HTTP Request (`axios.get`, `axios.post`, `fetch`) ภายใน React Pages หรือ UI Components โดยตรงเด็ดขาด
 - **Centralized Service Logic:** โค้ดการเรียกใช้ API และจัดการ Payload จาก Backend ทั้งหมดจะต้องย้ายไปเขียนรวบรวมไว้ที่โฟลเดอร์ `src/services/` แยกไฟล์ตาม Features (เช่น `auth.service.ts`, `calendar.service.ts`, `admin.service.ts`)
 - **Clean Component Rule:** React Components หน้าบ้านจะมีหน้าที่เพียงแค่จัดการการแสดงผล UI, การกรอกฟอร์ม, จัดการ UI State และส่งต่อข้อมูลไปยัง API Service เท่านั้น เพื่อให้โค้ดส่วนหน้าแสดงผลมีความกระชับ อ่านง่าย และทำการทดสอบ Unit Test ได้ง่ายขึ้น
+
+## 10. 🌐 Language Policy (English Only)
+- **All user-facing text** (UI labels, button text, placeholder, error messages, toast messages, page titles) **must be written in English**.
+- **Code comments** can be in Thai or English, but all runtime strings visible to the user must be English.
+- **Backend error messages** (thrown via exceptions like `UnauthorizedException`, `BadRequestException`, etc.) must also be in English since they are displayed directly to the user via toast notifications.

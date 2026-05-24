@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { adminService } from '@/services/admin.service';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -21,12 +21,21 @@ import {
   ToggleRight,
   ShieldAlert,
   Edit,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  LayoutDashboard,
+  Activity,
+  Calendar,
+  Sparkles,
+  Clock,
+  TrendingUp,
 } from 'lucide-react';
 import { UserManagementItem, Role, SportCategory } from '@/types';
 
 export default function AdminDashboard() {
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -34,6 +43,12 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<UserManagementItem[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [sports, setSports] = useState<SportCategory[]>([]);
+  const [usersCount, setUsersCount] = useState(0);
+  const [rolesCount, setRolesCount] = useState(0);
+  const [permissionsList, setPermissionsList] = useState<{ id: string; action: string; description?: string }[]>([]);
+  const [tempSelectedPermissions, setTempSelectedPermissions] = useState<string[]>([]);
+  const [showSyncWarningDialog, setShowSyncWarningDialog] = useState(false);
+  const [cronIntervalMinutes, setCronIntervalMinutes] = useState(360);
 
   // Dialog / Action State
   const [selectedUser, setSelectedUser] = useState<UserManagementItem | null>(null);
@@ -74,7 +89,6 @@ export default function AdminDashboard() {
     setIsLoading(true);
     try {
       const data = await adminService.getRoles();
-      // The API returns role array or pagination payload { data, total, ... }
       if (Array.isArray(data)) {
         setRoles(data);
       } else if (data?.data) {
@@ -103,10 +117,90 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadPermissions = async () => {
+    try {
+      const data = await adminService.getPermissions();
+      setPermissionsList(data);
+    } catch (err: any) {
+      showToast('error', 'Failed to retrieve system permissions.');
+    }
+  };
+
+  const loadDashboardData = async () => {
+    setIsLoading(true);
+    try {
+      const stats = await adminService.getDashboardStats();
+      setUsersCount(stats.usersCount || 0);
+      setRolesCount(stats.rolesCount || 0);
+      if (Array.isArray(stats.sports)) {
+        setSports(stats.sports);
+      } else if (stats.sports?.data) {
+        setSports(stats.sports.data);
+      }
+    } catch (err: any) {
+      showToast('error', 'Failed to retrieve dashboard overview statistics.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadUsersTabData = async () => {
+    setIsLoading(true);
+    try {
+      const result = await adminService.getUsersPageData();
+      setUsers(result.users || []);
+      const rolesData = result.roles;
+      if (Array.isArray(rolesData)) {
+        setRoles(rolesData);
+      } else if (rolesData?.data) {
+        setRoles(rolesData.data);
+      }
+    } catch (err: any) {
+      showToast('error', 'Failed to retrieve users directory data.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadRolesTabData = async () => {
+    setIsLoading(true);
+    try {
+      const result = await adminService.getRolesPageData();
+      const rolesData = result.roles;
+      if (Array.isArray(rolesData)) {
+        setRoles(rolesData);
+      } else if (rolesData?.data) {
+        setRoles(rolesData.data);
+      }
+      setPermissionsList(result.permissions || []);
+    } catch (err: any) {
+      showToast('error', 'Failed to retrieve role templates & permissions.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'users') loadUsers();
-    if (activeTab === 'roles') loadRoles();
-    if (activeTab === 'sports') loadSports();
+    loadDashboardData();
+  }, []);
+
+  const totalCalendarIds = useMemo(() => {
+    return sports.reduce((sum, sport) => sum + (sport.calendarIds?.length || 0), 0);
+  }, [sports]);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      loadDashboardData();
+    }
+    if (activeTab === 'users') {
+      loadUsersTabData();
+    }
+    if (activeTab === 'roles') {
+      loadRolesTabData();
+    }
+    if (activeTab === 'sports') {
+      loadSports();
+    }
   }, [activeTab]);
 
   // Global Calendar Sync
@@ -191,48 +285,54 @@ export default function AdminDashboard() {
   };
 
   // ==========================================
-  // PERMISSION ACTIONS
+  // PERMISSION ACTIONS (Bulk Mapped)
   // ==========================================
 
-  const handleAddPermission = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedRole || !newPermissionAction) return;
-
-    try {
-      await adminService.assignRolePermissions(selectedRole.id, [
-        {
-          action: newPermissionAction,
-          description: newPermissionDesc,
-        },
-      ]);
-      showToast('success', 'Permission added to role successfully.');
-      setNewPermissionAction('');
-      setNewPermissionDesc('');
-      
-      // Reload specific role permissions
-      const data = await adminService.getRoles();
-      const updatedRoles = Array.isArray(data) ? data : data?.data || [];
-      setRoles(updatedRoles);
-      const updatedRole = updatedRoles.find((r: Role) => r.id === selectedRole.id);
-      if (updatedRole) setSelectedRole(updatedRole);
-    } catch (err: any) {
-      showToast('error', err.response?.data?.message || 'Failed to add permission.');
-    }
+  const handleOpenPermissionsDialog = (role: Role) => {
+    setSelectedRole(role);
+    const currentActions = role.permissions?.map((rp) => rp.permission.action) || [];
+    setTempSelectedPermissions(currentActions);
+    setShowPermissionsDialog(true);
   };
 
-  const handleRemovePermission = async (roleId: string, action: string) => {
+  const handleTogglePermissionTemp = (action: string) => {
+    setTempSelectedPermissions((prev) =>
+      prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]
+    );
+  };
+
+  const handleSavePermissions = async () => {
+    if (!selectedRole) return;
+    setIsLoading(true);
     try {
-      await adminService.removeRolePermissions(roleId, [action]);
-      showToast('success', `Permission '${action}' removed from role.`);
+      const originalActions = selectedRole.permissions?.map((rp) => rp.permission.action) || [];
       
-      // Reload specific role permissions
-      const data = await adminService.getRoles();
-      const updatedRoles = Array.isArray(data) ? data : data?.data || [];
-      setRoles(updatedRoles);
-      const updatedRole = updatedRoles.find((r: Role) => r.id === roleId);
-      if (updatedRole) setSelectedRole(updatedRole);
+      const addedActions = tempSelectedPermissions.filter((action) => !originalActions.includes(action));
+      const removedActions = originalActions.filter((action) => !tempSelectedPermissions.includes(action));
+
+      if (removedActions.length > 0) {
+        await adminService.removeRolePermissions(selectedRole.id, removedActions);
+      }
+
+      if (addedActions.length > 0) {
+        const toAssign = addedActions.map((action) => {
+          const permInfo = permissionsList.find((p) => p.action === action);
+          return {
+            action,
+            description: permInfo?.description || '',
+          };
+        });
+        await adminService.assignRolePermissions(selectedRole.id, toAssign);
+      }
+
+      showToast('success', `Permissions updated successfully for role '${selectedRole.name}'.`);
+      setShowPermissionsDialog(false);
+      setSelectedRole(null);
+      loadRoles();
     } catch (err: any) {
-      showToast('error', err.response?.data?.message || 'Failed to remove permission.');
+      showToast('error', err.response?.data?.message || 'Failed to update permissions.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -286,29 +386,19 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header with global sync */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 glass-panel rounded-xl glow-teal">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <Shield className="w-6 h-6 text-teal-400" />
-            Admin Control Panel
-          </h1>
-          <p className="text-sm text-slate-400">Manage user access privileges, roles, permissions, and sport schedules.</p>
-        </div>
-        <Button
-          onClick={handleGlobalSync}
-          isLoading={isSyncing}
-          variant="secondary"
-          className="w-full sm:w-auto"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing && 'animate-spin'}`} />
-          Run Global Calendar Sync
-        </Button>
+      {/* Header */}
+      <div className="p-6 glass-panel rounded-xl glow-teal">
+        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+          <Shield className="w-6 h-6 text-teal-400" />
+          Admin Control Panel
+        </h1>
+        <p className="text-sm text-slate-400">Manage user access privileges, roles, permissions, and sport schedules.</p>
       </div>
 
       {/* Tabs list */}
       <Tabs
         tabs={[
+          { id: 'dashboard', label: 'Overview Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { id: 'users', label: 'User Directories', icon: <Users className="w-4 h-4" /> },
           { id: 'roles', label: 'Roles & Privileges', icon: <Shield className="w-4 h-4" /> },
           { id: 'sports', label: 'Sport Configurations', icon: <Settings className="w-4 h-4" /> },
@@ -322,6 +412,256 @@ export default function AdminDashboard() {
         <div className="flex flex-col items-center justify-center py-12 glass-panel rounded-xl min-h-[300px]">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-800 border-t-teal-500 mb-3" />
           <span className="text-sm text-slate-400 font-medium animate-pulse">Retrieving settings...</span>
+        </div>
+      )}
+
+      {/* 0. OVERVIEW DASHBOARD TAB */}
+      {!isLoading && activeTab === 'dashboard' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* KPI Metrics Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Metric Card 1: Users */}
+            <div className="glass-panel rounded-xl p-5 border border-slate-800/60 shadow-xl relative overflow-hidden transition-all duration-300 hover:border-slate-700/80 hover:shadow-[0_0_20px_rgba(168,85,247,0.15)] group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex justify-between items-start">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Registered Users</span>
+                  <span className="text-3xl font-extrabold text-white tracking-tight block">{usersCount}</span>
+                </div>
+                <div className="bg-purple-500/10 text-purple-400 p-2.5 rounded-lg border border-purple-500/20 group-hover:scale-110 transition-transform duration-300">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span>Access control ready</span>
+              </div>
+            </div>
+
+            {/* Metric Card 2: Roles */}
+            <div className="glass-panel rounded-xl p-5 border border-slate-800/60 shadow-xl relative overflow-hidden transition-all duration-300 hover:border-slate-700/80 hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex justify-between items-start">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Security Roles</span>
+                  <span className="text-3xl font-extrabold text-white tracking-tight block">{rolesCount}</span>
+                </div>
+                <div className="bg-blue-500/10 text-blue-400 p-2.5 rounded-lg border border-blue-500/20 group-hover:scale-110 transition-transform duration-300">
+                  <Shield className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+                <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+                <span>Authorization templates</span>
+              </div>
+            </div>
+
+            {/* Metric Card 3: Sport Categories */}
+            <div className="glass-panel rounded-xl p-5 border border-slate-800/60 shadow-xl relative overflow-hidden transition-all duration-300 hover:border-slate-700/80 hover:shadow-[0_0_20px_rgba(20,184,166,0.15)] group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex justify-between items-start">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Sport Categories</span>
+                  <span className="text-3xl font-extrabold text-white tracking-tight block">{sports.length}</span>
+                </div>
+                <div className="bg-teal-500/10 text-teal-400 p-2.5 rounded-lg border border-teal-500/20 group-hover:scale-110 transition-transform duration-300">
+                  <Activity className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>{sports.filter((s) => s.isActive).length} active, {sports.filter((s) => !s.isActive).length} inactive</span>
+              </div>
+            </div>
+
+            {/* Metric Card 4: Total Calendar IDs */}
+            <div className="glass-panel rounded-xl p-5 border border-slate-800/60 shadow-xl relative overflow-hidden transition-all duration-300 hover:border-slate-700/80 hover:shadow-[0_0_20px_rgba(245,158,11,0.15)] group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex justify-between items-start">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Connected Calendars</span>
+                  <span className="text-3xl font-extrabold text-white tracking-tight block">{totalCalendarIds}</span>
+                </div>
+                <div className="bg-amber-500/10 text-amber-400 p-2.5 rounded-lg border border-amber-500/20 group-hover:scale-110 transition-transform duration-300">
+                  <Calendar className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span>Google Calendar integration</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Core Dashboard Panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left/Middle Column: Quota Simulator and Action Trigger */}
+            <div className="lg:col-span-2 glass-panel rounded-xl p-6 border border-slate-800/60 shadow-xl space-y-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-96 h-96 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex items-center gap-3 border-b border-slate-800/80 pb-4">
+                <div className="bg-teal-500/10 text-teal-400 p-2 rounded-lg border border-teal-500/20">
+                  <RefreshCw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white tracking-wide">Sync Control & Quota Simulator</h2>
+                  <p className="text-xs text-slate-400">Monitor daily API limit consumption and trigger a global database schedule refresh.</p>
+                </div>
+              </div>
+
+              {/* Calculator Settings */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Simulation Inputs</h3>
+                  <Input
+                    id="dash-cron-interval"
+                    label="Cron Job Frequency (Minutes)"
+                    type="number"
+                    min={1}
+                    value={cronIntervalMinutes}
+                    onChange={(e) => setCronIntervalMinutes(Math.max(1, Number(e.target.value)))}
+                    className="bg-slate-950 border-slate-800 focus:border-teal-500/50"
+                  />
+                  <div className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-900 text-xs space-y-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Manual Sync Cost:</span>
+                      <span className="font-mono text-slate-300">{totalCalendarIds} requests</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Cron Sync Cost (per run):</span>
+                      <span className="font-mono text-slate-300">{totalCalendarIds} requests</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Cron Syncs Per Day:</span>
+                      <span className="font-mono text-slate-300">{Math.round((1440 / Math.max(1, cronIntervalMinutes)) * 100) / 100} times</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Projected Daily Queries</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-900 text-center">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Cron Daily Queries</span>
+                      <span className="text-xl font-mono font-bold text-slate-200 mt-1 block">
+                        {Math.round((1440 / Math.max(1, cronIntervalMinutes)) * totalCalendarIds)}
+                      </span>
+                    </div>
+                    <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-900 text-center">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Projected</span>
+                      <span className="text-xl font-mono font-bold text-teal-400 mt-1 block">
+                        {Math.round((1440 / Math.max(1, cronIntervalMinutes)) * totalCalendarIds) + totalCalendarIds}
+                      </span>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const safeMinutes = Math.max(1, cronIntervalMinutes);
+                    const runsPerDay = 1440 / safeMinutes;
+                    const cronQueriesPerDay = Math.round(runsPerDay * totalCalendarIds);
+                    const totalQueries = cronQueriesPerDay + totalCalendarIds;
+                    const quotaLimit = 1000000;
+                    const percentage = (totalQueries / quotaLimit) * 100;
+
+                    let statusText = 'SAFE';
+                    let statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+                    let barColor = 'bg-emerald-500';
+                    if (percentage >= 80) {
+                      statusText = 'HIGH USAGE';
+                      statusColor = 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20';
+                      barColor = 'bg-yellow-500';
+                    }
+                    if (percentage >= 100) {
+                      statusText = 'QUOTA EXCEEDED';
+                      statusColor = 'text-red-500 bg-red-500/10 border-red-500/20';
+                      barColor = 'bg-red-500';
+                    }
+
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-400 font-semibold">Quota Consumption:</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${statusColor}`}>
+                            {percentage.toFixed(5)}% ({statusText})
+                          </span>
+                        </div>
+                        <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-900">
+                          <div
+                            className={`h-full ${barColor} transition-all duration-500`}
+                            style={{ width: `${Math.min(100, percentage)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Action Trigger Banner */}
+              <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1 max-w-md">
+                  <div className="text-sm font-semibold text-white flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-amber-500" />
+                    Trigger Manual Integration Sync
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Forces an immediate background fetch of all active sport calendar categories. Events will be matched, parsed, and cached in the database.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setShowSyncWarningDialog(true)}
+                  isLoading={isSyncing}
+                  className="bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold shadow-[0_0_15px_rgba(20,184,166,0.3)] hover:shadow-[0_0_25px_rgba(20,184,166,0.5)] transition-all duration-300 py-2.5 px-5 h-auto text-xs w-full md:w-auto"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing && 'animate-spin'}`} />
+                  Run Global Calendar Sync
+                </Button>
+              </div>
+            </div>
+
+            {/* Right Column: Configured Feeds Density Checklist */}
+            <div className="glass-panel rounded-xl p-6 border border-slate-800/60 shadow-xl flex flex-col justify-between gap-4">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 border-b border-slate-800/80 pb-4">
+                  <div className="bg-purple-500/10 text-purple-400 p-2 rounded-lg border border-purple-500/20">
+                    <Activity className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-white tracking-wide">Sports Config Densities</h2>
+                    <p className="text-xs text-slate-400">Status & calendar count per sport category</p>
+                  </div>
+                </div>
+
+                <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                  {sports.map((sport) => (
+                    <div
+                      key={sport.id}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/40 border border-slate-900/60 hover:bg-slate-900/30 transition-colors"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-bold text-slate-200">{sport.fullName}</div>
+                        <div className="text-[10px] text-slate-500 font-mono tracking-wider">{sport.name.toUpperCase()}</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-mono font-bold bg-slate-800 px-2 py-0.5 rounded text-slate-400">
+                          {sport.calendarIds?.length || 0} cal
+                        </span>
+                        {sport.isActive ? (
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+                        ) : (
+                          <span className="h-2 w-2 rounded-full bg-slate-700" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-[10px] text-slate-500 leading-relaxed italic border-t border-slate-800/80 pt-3">
+                * To add, remove, or modify calendar channels or full descriptions, head over to the **Sport Configurations** tab.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -383,8 +723,7 @@ export default function AdminDashboard() {
                         <Select
                           options={[
                             { value: '', label: 'Select role...' },
-                            { value: 'USER', label: 'USER' },
-                            { value: 'ADMIN', label: 'ADMIN' },
+                            ...roles.map((r) => ({ value: r.name, label: r.name })),
                           ]}
                           value={roleToAssign}
                           onChange={(e) => setRoleToAssign(e.target.value)}
@@ -426,10 +765,7 @@ export default function AdminDashboard() {
                     <h3 className="text-base font-bold text-white tracking-wide">{role.name}</h3>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => {
-                          setSelectedRole(role);
-                          setShowPermissionsDialog(true);
-                        }}
+                        onClick={() => handleOpenPermissionsDialog(role)}
                         className="text-slate-400 hover:text-teal-400 transition-colors cursor-pointer"
                         title="Manage Permissions"
                       >
@@ -579,74 +915,109 @@ export default function AdminDashboard() {
         isOpen={showPermissionsDialog}
         onClose={() => {
           setShowPermissionsDialog(false);
-          setNewPermissionAction('');
-          setNewPermissionDesc('');
           setSelectedRole(null);
         }}
         title={selectedRole ? `Permissions Map - ${selectedRole.name}` : ''}
         maxWidth="md"
       >
         <div className="space-y-6">
-          {/* Add Permission Form */}
-          <form onSubmit={handleAddPermission} className="p-4 rounded-lg bg-slate-950/40 border border-slate-850 space-y-4">
-            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Map New Permission Action</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input
-                id="perm-action"
-                label="Permission Action"
-                placeholder="e.g. read:sport:NBA"
-                value={newPermissionAction}
-                onChange={(e) => setNewPermissionAction(e.target.value)}
-              />
-              <Input
-                id="perm-desc"
-                label="Description"
-                placeholder="NBA view schedules permission..."
-                value={newPermissionDesc}
-                onChange={(e) => setNewPermissionDesc(e.target.value)}
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button type="submit" variant="outline">
-                <Plus className="w-4 h-4 mr-1.5" /> Map Action
-              </Button>
-            </div>
-          </form>
+          <p className="text-sm text-slate-400">
+            Check or uncheck the boxes to assign permissions to this role. Click <strong>Save Permissions</strong> to apply changes.
+          </p>
 
-          {/* List of Permissions inside selectedRole */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800 pb-1.5">
-              Current Mapped Permissions
-            </h4>
-            <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1">
-              {selectedRole?.permissions?.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No permissions mapped to this role.</p>
-              ) : (
-                selectedRole?.permissions?.map((rp) => (
-                  <div
-                    key={rp.permission.action}
-                    className="flex items-center justify-between p-3 rounded-lg border border-slate-900 bg-slate-900/40 text-sm"
-                  >
-                    <div className="space-y-0.5">
-                      <span className="font-mono text-xs text-purple-400 font-semibold">{rp.permission.action}</span>
-                      {rp.permission.description && (
-                        <p className="text-xs text-slate-400">{rp.permission.description}</p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleRemovePermission(selectedRole.id, rp.permission.action)}
-                      className="text-slate-500 hover:text-red-400 p-1 cursor-pointer transition-colors"
-                      title="Unmap Permission"
-                    >
-                      <Trash2 className="w-4.5 h-4.5" />
-                    </button>
-                  </div>
-                ))
-              )}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
+            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Select System Privileges</h4>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setTempSelectedPermissions(permissionsList.map((p) => p.action))}
+                className="text-xs py-1 px-2.5 h-auto text-teal-400 hover:text-teal-300"
+              >
+                Select All
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setTempSelectedPermissions([])}
+                className="text-xs py-1 px-2.5 h-auto text-slate-400 hover:text-white"
+              >
+                Clear All
+              </Button>
             </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-slate-800">
+          <div className="max-h-[350px] overflow-y-auto space-y-6 pr-1">
+            {/* 1. Universal Control */}
+            <div className="space-y-3">
+              <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Universal Controls</h5>
+              <div className="grid grid-cols-1 gap-2">
+                {permissionsList.filter((p) => p.action === 'manage:all').map((p) => {
+                  const isChecked = tempSelectedPermissions.includes(p.action);
+                  return (
+                    <button
+                      key={p.action}
+                      type="button"
+                      onClick={() => handleTogglePermissionTemp(p.action)}
+                      className={`flex items-start gap-3 p-3.5 rounded-lg border text-left transition-all duration-300 cursor-pointer ${
+                        isChecked
+                          ? 'border-teal-500/30 bg-teal-500/5 text-white shadow-[0_0_15px_rgba(20,184,166,0.05)]'
+                          : 'border-slate-905 bg-slate-900/40 text-slate-300 hover:border-slate-800'
+                      }`}
+                    >
+                      {isChecked ? (
+                        <CheckSquare className="w-5 h-5 text-teal-400 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <Square className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
+                      )}
+                      <div>
+                        <div className="text-xs font-mono font-bold tracking-wide text-teal-400">{p.action}</div>
+                        <div className="text-xs text-slate-400 mt-1">{p.description || 'Full administrator access to all aspects of the application.'}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Sport Categories */}
+            <div className="space-y-3">
+              <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sports Calendar Feeds Access</h5>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {permissionsList.filter((p) => p.action !== 'manage:all').map((p) => {
+                  const isChecked = tempSelectedPermissions.includes(p.action);
+                  const sportName = p.action.replace('read:sport:', '');
+                  return (
+                    <button
+                      key={p.action}
+                      type="button"
+                      onClick={() => handleTogglePermissionTemp(p.action)}
+                      className={`flex items-start gap-3 p-3.5 rounded-lg border text-left transition-all duration-300 cursor-pointer ${
+                        isChecked
+                          ? 'border-purple-500/30 bg-purple-500/5 text-white shadow-[0_0_15px_rgba(168,85,247,0.05)]'
+                          : 'border-slate-905 bg-slate-900/40 text-slate-300 hover:border-slate-800'
+                      }`}
+                    >
+                      {isChecked ? (
+                        <CheckSquare className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <Square className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
+                      )}
+                      <div>
+                        <div className="text-xs font-bold text-slate-200">{sportName} View Fee</div>
+                        <div className="text-[11px] text-slate-500 font-mono mt-0.5">{p.action}</div>
+                        <div className="text-xs text-slate-400 mt-1 leading-relaxed">{p.description || `Can view events and schedules for ${sportName}`}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-4 border-t border-slate-800">
             <Button
               type="button"
               variant="ghost"
@@ -655,7 +1026,15 @@ export default function AdminDashboard() {
                 setSelectedRole(null);
               }}
             >
-              Close
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleSavePermissions}
+              className="bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-500 hover:to-indigo-500 text-white"
+            >
+              Save Permissions
             </Button>
           </div>
         </div>
@@ -722,6 +1101,141 @@ export default function AdminDashboard() {
             </Button>
           </div>
         </form>
+      </Dialog>
+
+      {/* GOOGLE CALENDAR SYNC WARNING DIALOG */}
+      <Dialog
+        isOpen={showSyncWarningDialog}
+        onClose={() => setShowSyncWarningDialog(false)}
+        title="⚠️ Google Calendar API Quota Warning"
+        maxWidth="md"
+      >
+        <div className="space-y-6">
+          {/* Warning Banner */}
+          <div className="flex gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-200">
+            <AlertTriangle className="w-6 h-6 flex-shrink-0 mt-0.5 text-amber-400" />
+            <div>
+              <p className="font-semibold text-sm">Dangerous Operation Alert</p>
+              <p className="text-xs text-amber-300/90 mt-1 leading-relaxed">
+                Running a global sync triggers multiple API request calls to Google Calendar. Frequent execution or overly aggressive cron intervals will deplete your Google API free tier quota.
+              </p>
+            </div>
+          </div>
+
+          {/* Quota Stats Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg bg-slate-950 border border-slate-900 text-center">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Google Daily Quota</span>
+              <span className="text-lg font-mono font-bold text-white mt-1 block">1,000,000</span>
+              <span className="text-[10px] text-slate-400">requests / day</span>
+            </div>
+            <div className="p-4 rounded-lg bg-slate-950 border border-slate-900 text-center">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Calendar IDs in DB</span>
+              <span className="text-lg font-mono font-bold text-teal-400 mt-1 block">{totalCalendarIds}</span>
+              <span className="text-[10px] text-slate-400">configured channels</span>
+            </div>
+            <div className="p-4 rounded-lg bg-slate-950 border border-slate-900 text-center">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Single Sync Cost</span>
+              <span className="text-lg font-mono font-bold text-teal-400 mt-1 block">{totalCalendarIds}</span>
+              <span className="text-[10px] text-slate-400">API queries</span>
+            </div>
+          </div>
+
+          {/* Calculator Input */}
+          <div className="p-4 rounded-lg bg-slate-900/40 border border-slate-800 space-y-4">
+            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Quota Usage Calculator</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+              <Input
+                id="cron-interval"
+                label="Cron Job Frequency (Minutes)"
+                type="number"
+                min={1}
+                value={cronIntervalMinutes}
+                onChange={(e) => setCronIntervalMinutes(Math.max(1, Number(e.target.value)))}
+                className="bg-slate-950 border-slate-800 focus:border-teal-500/50"
+              />
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Runs Per Day</span>
+                <span className="text-sm font-mono font-bold text-slate-300 block">
+                  {Math.round((1440 / Math.max(1, cronIntervalMinutes)) * 100) / 100} times / day
+                </span>
+              </div>
+            </div>
+
+            {/* Calculations results */}
+            {(() => {
+              const safeMinutes = Math.max(1, cronIntervalMinutes);
+              const runsPerDay = 1440 / safeMinutes;
+              const cronQueriesPerDay = Math.round(runsPerDay * totalCalendarIds);
+              const manualQueries = totalCalendarIds;
+              const totalQueries = cronQueriesPerDay + manualQueries;
+              const quotaLimit = 1000000;
+              const percentage = (totalQueries / quotaLimit) * 100;
+              
+              let statusText = 'SAFE';
+              let statusColor = 'text-emerald-400';
+              let barColor = 'bg-emerald-500';
+              if (percentage >= 80) {
+                statusText = 'HIGH USAGE WARNING';
+                statusColor = 'text-yellow-400';
+                barColor = 'bg-yellow-500';
+              }
+              if (percentage >= 100) {
+                statusText = 'DANGER: QUOTA EXCEEDED';
+                statusColor = 'text-red-500';
+                barColor = 'bg-red-500';
+              }
+
+              return (
+                <div className="space-y-3 pt-3 border-t border-slate-800/80">
+                  <div className="grid grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <span className="text-slate-400">Cron Daily Queries:</span>
+                      <span className="font-mono font-bold text-slate-200 ml-1.5">{cronQueriesPerDay}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Total Projected (Cron + 1 Sync):</span>
+                      <span className="font-mono font-bold text-slate-200 ml-1.5">{totalQueries}</span>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-xs font-semibold">
+                      <span className="text-slate-400">Daily Quota Consumption:</span>
+                      <span className={`${statusColor} font-mono`}>
+                        {percentage.toFixed(6)}% ({statusText})
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-900">
+                      <div
+                        className={`h-full ${barColor} transition-all duration-500`}
+                        style={{ width: `${Math.min(100, percentage)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="flex gap-3 justify-end pt-4 border-t border-slate-850">
+            <Button type="button" variant="ghost" onClick={() => setShowSyncWarningDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className="bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+              onClick={() => {
+                setShowSyncWarningDialog(false);
+                handleGlobalSync();
+              }}
+            >
+              Confirm & Sync Now
+            </Button>
+          </div>
+        </div>
       </Dialog>
     </div>
   );

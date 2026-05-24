@@ -26,6 +26,9 @@ api.interceptors.request.use(
   }
 );
 
+// Public auth endpoints that should NOT trigger token refresh or redirect
+const PUBLIC_AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/verify-email', '/auth/resend-verification'];
+
 // Response Interceptor for Token Refresh
 api.interceptors.response.use(
   (response) => {
@@ -33,6 +36,13 @@ api.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config;
+    const requestUrl = originalRequest?.url || '';
+
+    // Skip interceptor logic for public auth endpoints
+    // Let the calling component handle the error directly (e.g., show toast)
+    if (PUBLIC_AUTH_PATHS.some((path) => requestUrl.includes(path))) {
+      return Promise.reject(error);
+    }
 
     // If 401 error and not already retried
     if (error.response?.status === 401 && !originalRequest._retry) {

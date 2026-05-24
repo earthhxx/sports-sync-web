@@ -27,6 +27,12 @@ export const adminService = {
     return response.data;
   },
 
+  // Retrieve all system permissions
+  async getPermissions() {
+    const response = await api.get('/admin/permissions');
+    return response.data;
+  },
+
   // Create custom role
   async createRole(name: string, description: string) {
     const response = await api.post('/admin/roles', { name, description });
@@ -68,6 +74,24 @@ export const adminService = {
   // Trigger global google calendar synchronization
   async triggerGlobalSync() {
     const response = await api.post('/google-calendar/sync');
+    return response.data;
+  },
+
+  // Retrieve unified counts and configurations for overview dashboard
+  async getDashboardStats() {
+    const response = await api.get('/admin/dashboard-stats');
+    return response.data;
+  },
+
+  // Retrieve users and roles for the user management directories view
+  async getUsersPageData() {
+    const response = await api.get('/admin/users-page-data');
+    return response.data;
+  },
+
+  // Retrieve roles and permissions list for the roles tab view
+  async getRolesPageData() {
+    const response = await api.get('/admin/roles-page-data');
     return response.data;
   },
 };

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
-import { Calendar, User, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, User, ShieldAlert, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -28,6 +28,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Dashboard',
       href: '/',
       icon: <Calendar className="w-5 h-5" />,
+    },
+    {
+      label: 'Schedule Export',
+      href: '/schedule-export',
+      icon: <FileText className="w-5 h-5" />,
     },
     {
       label: 'Profile Settings',

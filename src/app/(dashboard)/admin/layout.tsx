@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useRouter } from 'next/navigation';
 import { ShieldAlert } from 'lucide-react';
+import { hasPermission } from '@/lib/auth-utils';
 
 export default function AdminLayout({
   children,
@@ -13,19 +14,24 @@ export default function AdminLayout({
   const { user, isAuthenticated, isLoading } = useAuthStore();
   const router = useRouter();
 
-  const isAdmin = user?.roles.includes('ADMIN');
+  const hasAdminAccess = hasPermission(user, [
+    'read:dashboard',
+    'read:users',
+    'read:roles',
+    'read:sports',
+  ]);
 
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated) {
         router.push('/login');
-      } else if (!isAdmin) {
+      } else if (!hasAdminAccess) {
         router.push('/');
       }
     }
-  }, [isAuthenticated, isAdmin, isLoading, router]);
+  }, [isAuthenticated, hasAdminAccess, isLoading, router]);
 
-  if (isLoading || !isAuthenticated || !isAdmin) {
+  if (isLoading || !isAuthenticated || !hasAdminAccess) {
     return (
       <div className="flex h-[calc(100vh-8rem)] items-center justify-center text-slate-400">
         <div className="flex flex-col items-center gap-3">

@@ -32,12 +32,64 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { UserManagementItem, Role, SportCategory } from '@/types';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useHasPermission } from '@/hooks/useHasPermission';
 
 export default function AdminDashboard() {
   const { showToast } = useToast();
+  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Permission hooks
+  const canReadDashboard = useHasPermission('read:dashboard');
+  const canReadUsers = useHasPermission('read:users');
+  const canReadRoles = useHasPermission('read:roles');
+  const canReadSports = useHasPermission('read:sports');
+  const canAssignRole = useHasPermission('assign:role');
+  const canCreateRole = useHasPermission('create:role');
+  const canAssignPermission = useHasPermission('assign:permission');
+  const canWriteSports = useHasPermission('write:sports');
+  const canSyncCalendar = useHasPermission('sync:calendar');
+
+  // Privilege Escalation Protection helpers
+  const isCurrentUserAdmin = user?.roles.includes('ADMIN');
+  const hasManageAdmin = user?.permissions.includes('manage:admin');
+
+  const canAssignRoleToUser = (roleName: string) => {
+    if (!canAssignRole) return false;
+    if (roleName === 'ADMIN') {
+      return !!(isCurrentUserAdmin || hasManageAdmin);
+    }
+    return true;
+  };
+
+  const canRevokeRole = (roleName: string) => {
+    if (!canAssignRole) return false;
+    if (roleName === 'ADMIN') {
+      return !!(isCurrentUserAdmin || hasManageAdmin);
+    }
+    return true;
+  };
+
+  // Filter tabs according to user permissions
+  const allowedTabs = useMemo(() => {
+    const allTabs = [
+      { id: 'dashboard', label: 'Overview Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, allowed: canReadDashboard },
+      { id: 'users', label: 'User Directories', icon: <Users className="w-4 h-4" />, allowed: canReadUsers },
+      { id: 'roles', label: 'Roles & Privileges', icon: <Shield className="w-4 h-4" />, allowed: canReadRoles },
+      { id: 'sports', label: 'Sport Configurations', icon: <Settings className="w-4 h-4" />, allowed: canReadSports },
+    ];
+    return allTabs.filter(t => t.allowed);
+  }, [canReadDashboard, canReadUsers, canReadRoles, canReadSports]);
+
+  // Adjust active tab if the current one is not allowed
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.some(t => t.id === activeTab)) {
+      setActiveTab(allowedTabs[0].id);
+    }
+  }, [allowedTabs, activeTab]);
 
   // Lists state
   const [users, setUsers] = useState<UserManagementItem[]>([]);
@@ -223,6 +275,10 @@ export default function AdminDashboard() {
 
   const handleAssignRole = async (userId: string) => {
     if (!roleToAssign) return;
+    if (roleToAssign === 'ADMIN' && !(isCurrentUserAdmin || hasManageAdmin)) {
+      showToast('error', 'Unauthorized to assign ADMIN role.');
+      return;
+    }
     try {
       await adminService.assignUserRole(userId, roleToAssign);
       showToast('success', `Role '${roleToAssign}' assigned successfully.`);
@@ -236,6 +292,10 @@ export default function AdminDashboard() {
   const handleRevokeRole = async (userId: string, roleName: string) => {
     if (roleName === 'ADMIN' && users.find(u => u.id === userId)?.email === 'admin@sportssync.com') {
       showToast('error', 'Cannot revoke ADMIN role from primary administrator account.');
+      return;
+    }
+    if (roleName === 'ADMIN' && !(isCurrentUserAdmin || hasManageAdmin)) {
+      showToast('error', 'Unauthorized to revoke ADMIN role.');
       return;
     }
     try {
@@ -303,6 +363,10 @@ export default function AdminDashboard() {
 
   const handleSavePermissions = async () => {
     if (!selectedRole) return;
+    if (selectedRole.name === 'ADMIN' && !(isCurrentUserAdmin || hasManageAdmin)) {
+      showToast('error', 'Unauthorized to modify ADMIN permissions.');
+      return;
+    }
     setIsLoading(true);
     try {
       const originalActions = selectedRole.permissions?.map((rp) => rp.permission.action) || [];
@@ -397,12 +461,7 @@ export default function AdminDashboard() {
 
       {/* Tabs list */}
       <Tabs
-        tabs={[
-          { id: 'dashboard', label: 'Overview Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-          { id: 'users', label: 'User Directories', icon: <Users className="w-4 h-4" /> },
-          { id: 'roles', label: 'Roles & Privileges', icon: <Shield className="w-4 h-4" /> },
-          { id: 'sports', label: 'Sport Configurations', icon: <Settings className="w-4 h-4" /> },
-        ]}
+        tabs={allowedTabs}
         activeTab={activeTab}
         onChange={setActiveTab}
       />
@@ -598,25 +657,27 @@ export default function AdminDashboard() {
               </div>
 
               {/* Action Trigger Banner */}
-              <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1 max-w-md">
-                  <div className="text-sm font-semibold text-white flex items-center gap-1.5">
-                    <ShieldAlert className="w-4 h-4 text-amber-500" />
-                    Trigger Manual Integration Sync
+              {canSyncCalendar && (
+                <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1 max-w-md">
+                    <div className="text-sm font-semibold text-white flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-amber-500" />
+                      Trigger Manual Integration Sync
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Forces an immediate background fetch of all active sport calendar categories. Events will be matched, parsed, and cached in the database.
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-400">
-                    Forces an immediate background fetch of all active sport calendar categories. Events will be matched, parsed, and cached in the database.
-                  </p>
+                  <Button
+                    onClick={() => setShowSyncWarningDialog(true)}
+                    isLoading={isSyncing}
+                    className="bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold shadow-[0_0_15px_rgba(20,184,166,0.3)] hover:shadow-[0_0_25px_rgba(20,184,166,0.5)] transition-all duration-300 py-2.5 px-5 h-auto text-xs w-full md:w-auto"
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing && 'animate-spin'}`} />
+                    Run Global Calendar Sync
+                  </Button>
                 </div>
-                <Button
-                  onClick={() => setShowSyncWarningDialog(true)}
-                  isLoading={isSyncing}
-                  className="bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold shadow-[0_0_15px_rgba(20,184,166,0.3)] hover:shadow-[0_0_25px_rgba(20,184,166,0.5)] transition-all duration-300 py-2.5 px-5 h-auto text-xs w-full md:w-auto"
-                >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing && 'animate-spin'}`} />
-                  Run Global Calendar Sync
-                </Button>
-              </div>
+              )}
             </div>
 
             {/* Right Column: Configured Feeds Density Checklist */}
@@ -705,13 +766,15 @@ export default function AdminDashboard() {
                             className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20"
                           >
                             {ur.role.name}
-                            <button
-                              onClick={() => handleRevokeRole(userItem.id, ur.role.name)}
-                              className="text-slate-500 hover:text-red-400 ml-1 cursor-pointer"
-                              title="Revoke Role"
-                            >
-                              &times;
-                            </button>
+                            {canRevokeRole(ur.role.name) && (
+                              <button
+                                onClick={() => handleRevokeRole(userItem.id, ur.role.name)}
+                                className="text-slate-500 hover:text-red-400 ml-1 cursor-pointer"
+                                title="Revoke Role"
+                              >
+                                &times;
+                              </button>
+                            )}
                           </span>
                         ))}
                       </div>
@@ -723,15 +786,18 @@ export default function AdminDashboard() {
                         <Select
                           options={[
                             { value: '', label: 'Select role...' },
-                            ...roles.map((r) => ({ value: r.name, label: r.name })),
+                            ...roles
+                              .filter((r) => canAssignRoleToUser(r.name))
+                              .map((r) => ({ value: r.name, label: r.name })),
                           ]}
                           value={roleToAssign}
                           onChange={(e) => setRoleToAssign(e.target.value)}
+                          disabled={!canAssignRole}
                         />
                         <Button
                           variant="outline"
                           onClick={() => handleAssignRole(userItem.id)}
-                          disabled={!roleToAssign}
+                          disabled={!canAssignRole || !roleToAssign}
                         >
                           Add
                         </Button>
@@ -749,37 +815,47 @@ export default function AdminDashboard() {
       {!isLoading && activeTab === 'roles' && (
         <div className="space-y-6">
           {/* Header Actions */}
-          <div className="flex justify-end">
-            <Button variant="secondary" onClick={() => setShowCreateRoleDialog(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Custom Role
-            </Button>
-          </div>
+          {canCreateRole && (
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={() => setShowCreateRoleDialog(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Create Custom Role
+              </Button>
+            </div>
+          )}
 
           {/* Roles Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {roles.map((role) => (
-              <div key={role.id} className="glass-panel rounded-xl p-5 flex flex-col justify-between gap-4 border-slate-800/60">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <h3 className="text-base font-bold text-white tracking-wide">{role.name}</h3>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleOpenPermissionsDialog(role)}
-                        className="text-slate-400 hover:text-teal-400 transition-colors cursor-pointer"
-                        title="Manage Permissions"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRole(role.id, role.name)}
-                        className="text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Delete Role"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+            {roles.map((role) => {
+              const canEditPerms = canAssignPermission && (role.name !== 'ADMIN' || isCurrentUserAdmin || hasManageAdmin);
+              const canDelRole = canCreateRole && role.name !== 'ADMIN' && role.name !== 'USER';
+
+              return (
+                <div key={role.id} className="glass-panel rounded-xl p-5 flex flex-col justify-between gap-4 border-slate-800/60">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <h3 className="text-base font-bold text-white tracking-wide">{role.name}</h3>
+                      <div className="flex gap-2">
+                        {canEditPerms && (
+                          <button
+                            onClick={() => handleOpenPermissionsDialog(role)}
+                            className="text-slate-400 hover:text-teal-400 transition-colors cursor-pointer"
+                            title="Manage Permissions"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelRole && (
+                          <button
+                            onClick={() => handleDeleteRole(role.id, role.name)}
+                            className="text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
+                            title="Delete Role"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
                   <p className="text-xs text-slate-400 italic leading-relaxed">
                     {role.description || 'No description provided.'}
@@ -806,7 +882,8 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         </div>
       )}
@@ -843,17 +920,27 @@ export default function AdminDashboard() {
 
                     {/* Active toggle button */}
                     <td className="p-4 text-center">
-                      <button
-                        onClick={() => handleToggleSportStatus(sport)}
-                        className="text-slate-400 hover:text-white transition-all cursor-pointer inline-flex items-center"
-                        title={sport.isActive ? 'Deactivate Sport' : 'Activate Sport'}
-                      >
-                        {sport.isActive ? (
-                          <ToggleRight className="w-6 h-6 text-emerald-400" />
-                        ) : (
-                          <ToggleLeft className="w-6 h-6 text-slate-600" />
-                        )}
-                      </button>
+                      {canWriteSports ? (
+                        <button
+                          onClick={() => handleToggleSportStatus(sport)}
+                          className="text-slate-400 hover:text-white transition-all cursor-pointer inline-flex items-center"
+                          title={sport.isActive ? 'Deactivate Sport' : 'Activate Sport'}
+                        >
+                          {sport.isActive ? (
+                            <ToggleRight className="w-6 h-6 text-emerald-400" />
+                          ) : (
+                            <ToggleLeft className="w-6 h-6 text-slate-600" />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-slate-500 inline-flex items-center cursor-not-allowed opacity-50">
+                          {sport.isActive ? (
+                            <ToggleRight className="w-6 h-6 text-emerald-500" />
+                          ) : (
+                            <ToggleLeft className="w-6 h-6 text-slate-700" />
+                          )}
+                        </span>
+                      )}
                     </td>
 
                     {/* Edit config button */}
@@ -862,7 +949,15 @@ export default function AdminDashboard() {
                         variant="outline"
                         onClick={() => handleOpenSportEdit(sport)}
                       >
-                        <Edit className="w-4 h-4 mr-1.5" /> Configure
+                        {canWriteSports ? (
+                          <>
+                            <Edit className="w-4 h-4 mr-1.5" /> Configure
+                          </>
+                        ) : (
+                          <>
+                            <Settings className="w-4 h-4 mr-1.5" /> View
+                          </>
+                        )}
                       </Button>
                     </td>
                   </tr>
@@ -1057,6 +1152,7 @@ export default function AdminDashboard() {
             placeholder="Ultimate Fighting Championship"
             value={sportFullName}
             onChange={(e) => setSportFullName(e.target.value)}
+            disabled={!canWriteSports}
           />
 
           <div className="flex flex-col gap-1.5">
@@ -1064,10 +1160,11 @@ export default function AdminDashboard() {
               Google Calendar IDs (one per line)
             </label>
             <textarea
-              className="w-full min-h-[120px] px-4 py-2.5 rounded-lg border bg-slate-950/60 border-slate-800 text-slate-100 placeholder-slate-500 font-mono text-xs transition-all duration-300 outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30"
+              className="w-full min-h-[120px] px-4 py-2.5 rounded-lg border bg-slate-950/60 border-slate-800 text-slate-100 placeholder-slate-500 font-mono text-xs transition-all duration-300 outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="e.g. 2lcbtf28u9nncve5hsmgfjmqok4qi380@import.calendar.google.com"
               value={sportCalendarIdsText}
               onChange={(e) => setSportCalendarIdsText(e.target.value)}
+              disabled={!canWriteSports}
             />
           </div>
 
@@ -1077,8 +1174,9 @@ export default function AdminDashboard() {
             </label>
             <button
               type="button"
-              onClick={() => setSportIsActive(!sportIsActive)}
-              className="text-slate-400 hover:text-white transition-all cursor-pointer"
+              onClick={() => canWriteSports && setSportIsActive(!sportIsActive)}
+              className={`text-slate-400 hover:text-white transition-all ${canWriteSports ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+              disabled={!canWriteSports}
             >
               {sportIsActive ? (
                 <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded border border-emerald-500/20 text-xs font-semibold">
@@ -1096,9 +1194,11 @@ export default function AdminDashboard() {
             <Button type="button" variant="ghost" onClick={() => setShowSportDialog(false)}>
               Cancel
             </Button>
-            <Button type="submit" variant="secondary">
-              Save Configurations
-            </Button>
+            {canWriteSports && (
+              <Button type="submit" variant="secondary">
+                Save Configurations
+              </Button>
+            )}
           </div>
         </form>
       </Dialog>

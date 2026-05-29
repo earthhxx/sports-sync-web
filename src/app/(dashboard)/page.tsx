@@ -51,8 +51,18 @@ export default function Dashboard() {
 
   // Determine authorized sports based on user roles, permissions, and database sports list
   const authorizedSports = useMemo(() => {
-    return sportsList;
-  }, [sportsList]);
+    if (!user) return [];
+    if (user.roles?.includes('ADMIN') || user.permissions?.includes('manage:all')) {
+      return sportsList;
+    }
+    const permittedSportNames = (user.permissions || [])
+      .filter((perm) => perm.startsWith('read:sport:'))
+      .map((perm) => perm.replace('read:sport:', '').toLowerCase());
+
+    return sportsList.filter((sport) =>
+      permittedSportNames.includes(sport.name.toLowerCase())
+    );
+  }, [sportsList, user]);
 
   // Track last applied filter values to determine when to skip debouncing (e.g. on pagination)
   const lastFiltersRef = React.useRef({

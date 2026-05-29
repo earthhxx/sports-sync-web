@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { calendarService } from '@/services/calendar.service';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SportCategory } from '@/types';
+import { useAuthStore } from '@/store/useAuthStore';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ const getSportIcon = (name: string): string => {
 
 export default function ScheduleExportPage() {
   const { showToast } = useToast();
+  const { user } = useAuthStore();
 
   const [sports, setSports] = useState<SportCategory[]>([]);
   const [isSportsLoading, setIsSportsLoading] = useState(true);
@@ -74,6 +76,21 @@ export default function ScheduleExportPage() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewText, setPreviewText] = useState<string | null>(null);
 
+  // Filter sports categories based on user read permissions
+  const authorizedSports = useMemo(() => {
+    if (!user) return [];
+    if (user.roles?.includes('ADMIN') || user.permissions?.includes('manage:all')) {
+      return sports;
+    }
+    const permittedSportNames = (user.permissions || [])
+      .filter((perm) => perm.startsWith('read:sport:'))
+      .map((perm) => perm.replace('read:sport:', '').toLowerCase());
+
+    return sports.filter((sport) =>
+      permittedSportNames.includes(sport.name.toLowerCase())
+    );
+  }, [sports, user]);
+
   // ── Load sports ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
@@ -82,7 +99,23 @@ export default function ScheduleExportPage() {
         const data = await calendarService.getSports();
         const list: SportCategory[] = Array.isArray(data) ? data : data?.data ?? [];
         setSports(list);
-        setSelectedSports(list.map((s) => s.name)); // default = all selected
+
+        // Pre-select only the authorized sports names by default
+        const permittedList = (() => {
+          if (!user) return [];
+          if (user.roles?.includes('ADMIN') || user.permissions?.includes('manage:all')) {
+            return list;
+          }
+          const permittedSportNames = (user.permissions || [])
+            .filter((perm) => perm.startsWith('read:sport:'))
+            .map((perm) => perm.replace('read:sport:', '').toLowerCase());
+
+          return list.filter((sport) =>
+            permittedSportNames.includes(sport.name.toLowerCase())
+          );
+        })();
+
+        setSelectedSports(permittedList.map((s) => s.name));
       } catch {
         showToast('error', 'Failed to load sport categories.');
       } finally {
@@ -90,7 +123,7 @@ export default function ScheduleExportPage() {
       }
     };
     load();
-  }, [showToast]);
+  }, [showToast, user]);
 
   // ── Selection Helpers ────────────────────────────────────────────────────────
   const toggleSport = (name: string) => {
@@ -98,7 +131,7 @@ export default function ScheduleExportPage() {
       prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]
     );
   };
-  const selectAll = () => setSelectedSports(sports.map((s) => s.name));
+  const selectAll = () => setSelectedSports(authorizedSports.map((s) => s.name));
   const clearAll = () => setSelectedSports([]);
 
   // ── Build query params ───────────────────────────────────────────────────────
@@ -225,11 +258,12 @@ export default function ScheduleExportPage() {
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
               </div>
-            ) : sports.length === 0 ? (
+            ) : authorizedSports.length === 0 ? ( // แก้จุดนี้: เช็คจาก authorizedSports
               <p className="text-xs text-slate-500 italic py-4 text-center">No permitted sports available.</p>
             ) : (
               <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1">
-                {sports.map((sport) => {
+                {/* แก้จุดนี้: เปลี่ยนจาก sports.map เป็น authorizedSports.map */}
+                {authorizedSports.map((sport) => {
                   const checked = selectedSports.includes(sport.name);
                   const accent = getSportAccent(sport.name);
                   const icon = getSportIcon(sport.name);
@@ -237,11 +271,10 @@ export default function ScheduleExportPage() {
                     <button
                       key={sport.id}
                       onClick={() => toggleSport(sport.name)}
-                      className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all duration-200 cursor-pointer ${
-                        checked
+                      className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all duration-200 cursor-pointer ${checked
                           ? accent + ' shadow-sm'
                           : 'border-slate-800/60 bg-slate-900/30 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                      }`}
+                        }`}
                     >
                       {checked ? (
                         <CheckSquare className="w-4 h-4 flex-shrink-0" />
@@ -262,7 +295,8 @@ export default function ScheduleExportPage() {
             {/* Count badge */}
             <div className="pt-2 border-t border-slate-800/60 text-xs text-slate-500">
               <span className={selectedSports.length === 0 ? 'text-amber-400' : 'text-slate-400'}>
-                {selectedSports.length} of {sports.length} sports selected
+                {/* แก้จุดนี้: แสดงสัดส่วนตามจำนวนกีฬาที่มีสิทธิ์จริง */}
+                {selectedSports.length} of {authorizedSports.length} sports selected
               </span>
             </div>
           </div>

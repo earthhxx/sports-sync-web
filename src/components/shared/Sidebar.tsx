@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { Calendar, User, ShieldAlert, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { hasPermission } from '@/lib/auth-utils';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -21,7 +22,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { user } = useAuthStore();
   const pathname = usePathname();
-  const isAdmin = user?.roles.includes('ADMIN');
+  const hasAdminAccess = hasPermission(user, [
+    'read:dashboard',
+    'read:users',
+    'read:roles',
+    'read:sports',
+  ]);
 
   const navItems = [
     {
@@ -41,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  if (isAdmin) {
+  if (hasAdminAccess) {
     navItems.push({
       label: 'Admin Control',
       href: '/admin',

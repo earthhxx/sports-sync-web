@@ -2,8 +2,9 @@
 
 import React from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
-import { LogOut, User as UserIcon, Shield, Menu } from 'lucide-react';
+import { LogOut, Shield, Menu } from 'lucide-react';
 import Link from 'next/link';
+import { hasPermission } from '@/lib/auth-utils';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -19,7 +20,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
     return (first + last).toUpperCase() || user.email[0].toUpperCase();
   };
 
-  const isAdmin = user?.roles.includes('ADMIN');
+  const hasAdminAccess = hasPermission(user, [
+    'read:dashboard',
+    'read:users',
+    'read:roles',
+    'read:sports',
+  ]);
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-900 bg-slate-950/80 backdrop-blur-md">
@@ -49,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
                 {user.firstName ? `${user.firstName} ${user.lastName}` : user.email}
               </span>
               <span className="text-xs text-slate-400 flex items-center gap-1">
-                {isAdmin ? (
+                {hasAdminAccess ? (
                   <>
                     <Shield className="w-3 h-3 text-teal-400" />
                     Admin Portal

@@ -35,6 +35,21 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    // Catch Rate Limit errors and override with user-friendly message
+    if (error.response?.status === 429) {
+      const rateLimitMsg = 'Too many requests. Please try again after some time.';
+      if (error.response.data) {
+        if (typeof error.response.data === 'string') {
+          error.response.data = { message: rateLimitMsg };
+        } else {
+          error.response.data.message = rateLimitMsg;
+        }
+      } else {
+        error.response.data = { message: rateLimitMsg };
+      }
+      return Promise.reject(error);
+    }
+
     const originalRequest = error.config;
     const requestUrl = originalRequest?.url || '';
 

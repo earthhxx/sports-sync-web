@@ -13,15 +13,28 @@ export const calendarService = {
     return response.data;
   },
 
-  // Export schedule as plain text; returns the TXT string
-  async exportSchedule(params: URLSearchParams): Promise<string> {
-    const response = await api.get(`/calendar/export?${params.toString()}`, {
+  // Retrieve sports availability count in date range
+  async getSportsAvailability(startDate?: string, endDate?: string) {
+    const response = await api.get('/calendar/sports-availability', {
+      params: { startDate, endDate },
+    });
+    return response.data as { sportName: string; count: number }[];
+  },
+
+  // Export schedule; returns the file string
+  async exportSchedule(params: any, format: 'txt' | 'csv' = 'txt', eventIds?: string[]): Promise<string> {
+    const data = { ...params, format, eventIds };
+    const response = await api.post(`/calendar/export`, data, {
       responseType: 'text',
     });
-    // axios may auto-parse JSON even with responseType:'text' on some configs,
-    // so normalise to string
     return typeof response.data === 'string'
       ? response.data
       : JSON.stringify(response.data, null, 2);
+  },
+  
+  // Get all matched events for export preview (unpaginated/large limit)
+  async getExportPreview(params: { startDate?: string; endDate?: string; sports?: string }) {
+    const response = await api.get('/calendar', { params: { ...params, limit: 2000, page: 1 } });
+    return response.data;
   },
 };

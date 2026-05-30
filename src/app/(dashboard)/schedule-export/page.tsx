@@ -59,6 +59,52 @@ const getSportIcon = (name: string): string => {
   return '🏅';
 };
 
+
+
+// ─── Simple CSV Parser for Preview ───────────────────────────────────────────
+const parseCSV = (csvStr: string) => {
+  const cleanStr = csvStr.replace(/^\uFEFF/, '').trim();
+  if (!cleanStr) return [];
+  const rows = [];
+  let currentRow = [];
+  let currentCell = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < cleanStr.length; i++) {
+    const char = cleanStr[i];
+    if (inQuotes) {
+      if (char === '"' && cleanStr[i+1] === '"') {
+        currentCell += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        currentCell += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        currentRow.push(currentCell);
+        currentCell = '';
+      } else if (char === '\n' || (char === '\r' && cleanStr[i+1] === '\n')) {
+        currentRow.push(currentCell);
+        rows.push(currentRow);
+        currentRow = [];
+        currentCell = '';
+        if (char === '\r') i++;
+      } else {
+        currentCell += char;
+      }
+    }
+  }
+  if (currentCell !== '' || currentRow.length > 0) {
+    currentRow.push(currentCell.trim());
+    rows.push(currentRow);
+  }
+  return rows;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ScheduleExportPage() {
@@ -72,9 +118,16 @@ export default function ScheduleExportPage() {
   const [startDate, setStartDate] = useState(todayStr());
   const [endDate, setEndDate] = useState(weekLaterStr());
 
+  const [sportsAvailability, setSportsAvailability] = useState<{ sportName: string; count: number }[] | null>(null);
+
   const [isExporting, setIsExporting] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewMatches, setPreviewMatches] = useState<any[] | null>(null);
+  const [selectedMatchIds, setSelectedMatchIds] = useState<string[]>([]);
+  const [exportFormat, setExportFormat] = useState<'txt' | 'csv'>('txt');
+  const [activeTab, setActiveTab] = useState<'selection' | 'file'>('selection');
   const [previewText, setPreviewText] = useState<string | null>(null);
+  const [isFilePreviewLoading, setIsFilePreviewLoading] = useState(false);
 
   // Filter sports categories based on user read permissions
   const authorizedSports = useMemo(() => {
@@ -115,7 +168,9 @@ export default function ScheduleExportPage() {
           );
         })();
 
-        setSelectedSports(permittedList.map((s) => s.name));
+        // Filter out inactive or unfinished sports from default selection
+        const selectableList = permittedList.filter(s => s.isActive && (s.calendarIds?.length || 0) > 0);
+        setSelectedSports(selectableList.map((s) => s.name));
       } catch {
         showToast('error', 'Failed to load sport categories.');
       } finally {
@@ -125,13 +180,39 @@ export default function ScheduleExportPage() {
     load();
   }, [showToast, user]);
 
+  // ── Load sports availability ──────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      try {
+        const data = await calendarService.getSportsAvailability(startDate, endDate);
+        setSportsAvailability(data);
+      } catch (err) {
+        console.error('Failed to fetch sports availability', err);
+        setSportsAvailability(null);
+      }
+    };
+    fetchAvailability();
+  }, [startDate, endDate]);
+
   // ── Selection Helpers ────────────────────────────────────────────────────────
   const toggleSport = (name: string) => {
     setSelectedSports((prev) =>
       prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]
     );
   };
-  const selectAll = () => setSelectedSports(authorizedSports.map((s) => s.name));
+  const selectAll = () => {
+    const selectableSports = authorizedSports
+      .filter((s) => {
+        if (!s.isActive || (s.calendarIds?.length || 0) === 0) return false;
+        if (sportsAvailability !== null) {
+          const hasEvents = sportsAvailability.some(a => a.sportName.toLowerCase() === s.name.toLowerCase() && a.count > 0);
+          if (!hasEvents) return false;
+        }
+        return true;
+      })
+      .map((s) => s.name);
+    setSelectedSports(selectableSports);
+  };
   const clearAll = () => setSelectedSports([]);
 
   // ── Build query params ───────────────────────────────────────────────────────
@@ -144,19 +225,28 @@ export default function ScheduleExportPage() {
     return params;
   }, [startDate, endDate, selectedSports]);
 
-  // ── Export (download TXT) ────────────────────────────────────────────────────
+  // ── Export ───────────────────────────────────────────────────────────────────
   const handleExport = async () => {
+    if (previewMatches && selectedMatchIds.length === 0) {
+      showToast('error', 'Please select at least one match to export.');
+      return;
+    }
+
     setIsExporting(true);
     try {
-      const txt = await calendarService.exportSchedule(buildParams());
-      const blob = new Blob([txt], { type: 'text/plain; charset=utf-8' });
+      const eventIds = previewMatches ? selectedMatchIds : undefined;
+      const paramsObj = Object.fromEntries(buildParams().entries());
+      const data = await calendarService.exportSchedule(paramsObj, exportFormat, eventIds);
+      const mimeType = exportFormat === 'csv' ? 'text/csv' : 'text/plain';
+      const blob = new Blob([data], { type: `${mimeType}; charset=utf-8` });
+      
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `sports-schedule-${startDate}.txt`;
+      a.download = `sports-schedule-${startDate}.${exportFormat}`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('success', `Schedule exported successfully as sports-schedule-${startDate}.txt`);
+      showToast('success', `Schedule exported successfully as sports-schedule-${startDate}.${exportFormat}`);
     } catch {
       showToast('error', 'Export failed. Please try again.');
     } finally {
@@ -164,21 +254,71 @@ export default function ScheduleExportPage() {
     }
   };
 
-  // ── Preview ──────────────────────────────────────────────────────────────────
+  // ── Preview (Load Matches) ───────────────────────────────────────────────────
   const handlePreview = async () => {
     setIsPreviewing(true);
-    setPreviewText(null);
+    setPreviewMatches(null);
+    setSelectedMatchIds([]);
     try {
-      const txt = await calendarService.exportSchedule(buildParams());
-      setPreviewText(txt);
+      const paramsObj = Object.fromEntries(buildParams().entries());
+      const res = await calendarService.getExportPreview(paramsObj);
+      const matches = res.data || [];
+      setPreviewMatches(matches);
+      setSelectedMatchIds(matches.map((m: any) => m.id));
+      if (matches.length === 0) {
+        showToast('error', 'No matches found for the selected filters.');
+      } else {
+        setActiveTab('selection');
+        setPreviewText(null); // clear old file preview
+      }
     } catch {
-      showToast('error', 'Failed to generate preview.');
+      showToast('error', 'Failed to load matches.');
     } finally {
       setIsPreviewing(false);
     }
   };
 
+  const toggleMatch = (id: string) => {
+    setSelectedMatchIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleAllMatches = () => {
+    if (selectedMatchIds.length === previewMatches?.length) {
+      setSelectedMatchIds([]);
+    } else {
+      setSelectedMatchIds(previewMatches?.map(m => m.id) || []);
+    }
+  };
+
   const canExport = selectedSports.length > 0;
+
+  const fetchFilePreview = async (formatToFetch: 'txt' | 'csv' = exportFormat) => {
+    if (!previewMatches || selectedMatchIds.length === 0) return;
+    setIsFilePreviewLoading(true);
+    try {
+      const paramsObj = Object.fromEntries(buildParams().entries());
+      const data = await calendarService.exportSchedule(paramsObj, formatToFetch, selectedMatchIds);
+      setPreviewText(data);
+    } catch {
+      showToast('error', 'Failed to generate file preview.');
+    } finally {
+      setIsFilePreviewLoading(false);
+    }
+  };
+
+  const handleTabChange = async (tab: 'selection' | 'file') => {
+    setActiveTab(tab);
+    if (tab === 'file' && previewMatches && selectedMatchIds.length > 0) {
+      await fetchFilePreview();
+    }
+  };
+
+  const handleFormatChange = (format: 'txt' | 'csv') => {
+    setExportFormat(format);
+    if (activeTab === 'file') {
+      fetchFilePreview(format);
+    }
+  };
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -196,7 +336,7 @@ export default function ScheduleExportPage() {
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight">Sports Schedule Export</h1>
             <p className="text-sm text-slate-400 mt-0.5">
-              Filter by date range &amp; sports, then export a formatted TXT schedule file.
+              Filter by date range &amp; sports, then export a formatted TXT or CSV schedule file.
             </p>
           </div>
         </div>
@@ -264,26 +404,49 @@ export default function ScheduleExportPage() {
               <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1">
                 {/* แก้จุดนี้: เปลี่ยนจาก sports.map เป็น authorizedSports.map */}
                 {authorizedSports.map((sport) => {
-                  const checked = selectedSports.includes(sport.name);
+                  const isInactive = !sport.isActive;
+                  const isUnfinished = sport.calendarIds?.length === 0;
+                  
+                  const hasEvents = sportsAvailability === null || sportsAvailability.some(a => a.sportName.toLowerCase() === sport.name.toLowerCase() && a.count > 0);
+                  const isUnavailable = sportsAvailability !== null && !hasEvents;
+
+                  const isDisabled = isInactive || isUnfinished || isUnavailable;
+
+                  const checked = selectedSports.includes(sport.name) && !isDisabled;
                   const accent = getSportAccent(sport.name);
                   const icon = getSportIcon(sport.name);
                   return (
                     <button
                       key={sport.id}
-                      onClick={() => toggleSport(sport.name)}
-                      className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all duration-200 cursor-pointer ${checked
-                          ? accent + ' shadow-sm'
-                          : 'border-slate-800/60 bg-slate-900/30 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                        }`}
+                      onClick={() => !isDisabled && toggleSport(sport.name)}
+                      disabled={isDisabled}
+                      className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all duration-200 ${
+                        isDisabled
+                          ? 'border-slate-800/40 bg-slate-900/20 text-slate-500 opacity-60 cursor-not-allowed'
+                          : checked
+                          ? accent + ' shadow-sm cursor-pointer'
+                          : 'border-slate-800/60 bg-slate-900/30 text-slate-400 hover:border-slate-700 hover:text-slate-300 cursor-pointer'
+                      }`}
                     >
                       {checked ? (
                         <CheckSquare className="w-4 h-4 flex-shrink-0" />
                       ) : (
-                        <Square className="w-4 h-4 flex-shrink-0 text-slate-600" />
+                        <Square className={`w-4 h-4 flex-shrink-0 ${isDisabled ? 'text-slate-700' : 'text-slate-600'}`} />
                       )}
-                      <span className="text-base leading-none">{icon}</span>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold leading-tight truncate">{sport.fullName}</p>
+                      <span className={`text-base leading-none ${isDisabled ? 'grayscale opacity-50' : ''}`}>{icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold leading-tight truncate flex items-center gap-2">
+                          {sport.fullName}
+                          {isUnfinished && (
+                            <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded uppercase tracking-wider">Coming Soon</span>
+                          )}
+                          {isInactive && !isUnfinished && (
+                            <span className="text-[9px] bg-slate-700/50 text-slate-400 px-1.5 py-0.5 rounded uppercase tracking-wider">Inactive</span>
+                          )}
+                          {isUnavailable && !isInactive && !isUnfinished && (
+                            <span className="text-[9px] bg-slate-800/80 text-slate-500 px-1.5 py-0.5 rounded uppercase tracking-wider">No Matches</span>
+                          )}
+                        </p>
                         <p className="text-[10px] font-mono text-slate-500 mt-0.5 truncate">{sport.name}</p>
                       </div>
                     </button>
@@ -293,11 +456,18 @@ export default function ScheduleExportPage() {
             )}
 
             {/* Count badge */}
-            <div className="pt-2 border-t border-slate-800/60 text-xs text-slate-500">
+            <div className="pt-2 border-t border-slate-800/60 text-xs text-slate-500 flex justify-between items-center">
               <span className={selectedSports.length === 0 ? 'text-amber-400' : 'text-slate-400'}>
-                {/* แก้จุดนี้: แสดงสัดส่วนตามจำนวนกีฬาที่มีสิทธิ์จริง */}
-                {selectedSports.length} of {authorizedSports.length} sports selected
+                {selectedSports.length} of {authorizedSports.filter(s => {
+                  if (!s.isActive || (s.calendarIds?.length || 0) === 0) return false;
+                  if (sportsAvailability !== null) {
+                    const hasEvents = sportsAvailability.some(a => a.sportName.toLowerCase() === s.name.toLowerCase() && a.count > 0);
+                    if (!hasEvents) return false;
+                  }
+                  return true;
+                }).length} available sports selected
               </span>
+              {sportsAvailability === null && <Loader2 className="w-3 h-3 animate-spin text-slate-500" />}
             </div>
           </div>
 
@@ -308,6 +478,33 @@ export default function ScheduleExportPage() {
               <p className="text-xs text-amber-300">Select at least one sport to export.</p>
             </div>
           )}
+
+          {/* Format Selector */}
+          <div className="glass-panel rounded-xl p-5 border border-slate-800/60 space-y-4">
+            <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-2">Export Format</h2>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleFormatChange('txt')}
+                className={`flex items-center justify-center py-2.5 rounded-lg border text-sm font-bold transition-all ${
+                  exportFormat === 'txt'
+                    ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
+                    : 'bg-slate-900/50 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                }`}
+              >
+                TXT Format
+              </button>
+              <button
+                onClick={() => handleFormatChange('csv')}
+                className={`flex items-center justify-center py-2.5 rounded-lg border text-sm font-bold transition-all ${
+                  exportFormat === 'csv'
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                    : 'bg-slate-900/50 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                }`}
+              >
+                CSV Format
+              </button>
+            </div>
+          </div>
 
           {/* Action buttons */}
           <div className="flex flex-col gap-3">
@@ -320,7 +517,7 @@ export default function ScheduleExportPage() {
               className="w-full gap-2 justify-center"
             >
               <Eye className="w-4 h-4" />
-              {isPreviewing ? 'Generating Preview…' : 'Preview Schedule'}
+              {isPreviewing ? 'Loading Matches…' : 'Preview & Select Matches'}
             </Button>
             <Button
               id="export-btn"
@@ -330,51 +527,187 @@ export default function ScheduleExportPage() {
               className="w-full gap-2 justify-center bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] transition-all duration-300"
             >
               <Download className="w-4 h-4" />
-              {isExporting ? 'Exporting…' : 'Export TXT Schedule'}
+              {isExporting ? 'Exporting…' : `Export ${exportFormat.toUpperCase()} Schedule`}
             </Button>
           </div>
         </div>
 
         {/* ── Right Column: Preview Pane ───────────────────────────────────── */}
         <div className="lg:col-span-3">
-          <div className="glass-panel rounded-xl p-5 border border-slate-800/60 flex flex-col h-full min-h-[500px]">
-            <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3 mb-4">
-              <Eye className="w-4 h-4 text-violet-400" />
-              <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Preview</h2>
-              {previewText && (
-                <span className="ml-auto text-[10px] font-mono text-slate-500 bg-slate-900/60 border border-slate-800 px-2 py-0.5 rounded">
-                  TXT format
-                </span>
-              )}
+          <div className="glass-panel rounded-xl border border-slate-800/60 flex flex-col h-full min-h-[500px] overflow-hidden">
+            {/* Tabs Header */}
+            <div className="flex items-center border-b border-slate-800/80 bg-slate-900/50">
+              <button
+                onClick={() => handleTabChange('selection')}
+                className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-bold transition-colors ${
+                  activeTab === 'selection' ? 'text-violet-400 border-b-2 border-violet-500 bg-violet-500/5' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
+                }`}
+              >
+                <CheckSquare className="w-4 h-4" />
+                Select Matches
+              </button>
+              <button
+                onClick={() => handleTabChange('file')}
+                disabled={previewMatches === null || selectedMatchIds.length === 0}
+                className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-bold transition-colors ${
+                  (previewMatches === null || selectedMatchIds.length === 0) ? 'opacity-50 cursor-not-allowed text-slate-600' :
+                  activeTab === 'file' ? 'text-teal-400 border-b-2 border-teal-500 bg-teal-500/5' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                File Preview ({exportFormat.toUpperCase()})
+              </button>
             </div>
 
-            {isPreviewing ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-                <p className="text-sm">Generating preview…</p>
+            <div className="p-5 flex-1 flex flex-col min-h-0">
+              {/* Toolbar */}
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/60">
+                {activeTab === 'selection' ? (
+                  <>
+                    <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Matches Available</h2>
+                    {previewMatches !== null && (
+                      <span className="text-xs font-bold text-violet-400">
+                        {selectedMatchIds.length} / {previewMatches.length} Selected
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Generated File Preview</h2>
+                    <span className="text-[10px] font-mono text-slate-500 bg-slate-900/60 border border-slate-800 px-2 py-0.5 rounded uppercase">
+                      {exportFormat} format
+                    </span>
+                  </>
+                )}
               </div>
-            ) : previewText === null ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-                  <FileText className="w-8 h-8 text-indigo-400/60" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-400">No preview yet</p>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Select your filters and click <strong className="text-slate-500">Preview Schedule</strong> to see the output here.
-                  </p>
-                </div>
-              </div>
-            ) : previewText.trim().startsWith('No sports') || previewText.trim().startsWith('No matches') ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
-                <Calendar className="w-10 h-10 text-slate-700" />
-                <p className="text-sm text-slate-500">{previewText}</p>
-              </div>
-            ) : (
-              <pre className="flex-1 overflow-auto text-xs leading-relaxed text-slate-300 font-mono whitespace-pre bg-slate-950/60 rounded-lg p-4 border border-slate-900">
-                {previewText}
-              </pre>
-            )}
+
+              {/* Tab Content */}
+              {activeTab === 'selection' ? (
+                <>
+                  {isPreviewing ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+                      <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+                      <p className="text-sm">Loading matches…</p>
+                    </div>
+                  ) : previewMatches === null ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+                      <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                        <CheckSquare className="w-8 h-8 text-indigo-400/60" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-400">No matches loaded</p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          Select your filters and click <strong className="text-slate-500">Preview &amp; Select Matches</strong> to see the list here.
+                        </p>
+                      </div>
+                    </div>
+                  ) : previewMatches.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
+                      <Calendar className="w-10 h-10 text-slate-700" />
+                      <p className="text-sm text-slate-500">No matches found for the selected filters.</p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-auto rounded-lg border border-slate-800 bg-slate-900/50">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-800/80 sticky top-0 z-10 backdrop-blur-sm">
+                            <th className="p-3 border-b border-slate-700/60 w-10 text-center">
+                              <button onClick={toggleAllMatches} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+                                {selectedMatchIds.length === previewMatches.length ? <CheckSquare className="w-4 h-4 mx-auto" /> : <Square className="w-4 h-4 mx-auto" />}
+                              </button>
+                            </th>
+                            <th className="p-3 font-semibold text-slate-300 border-b border-slate-700/60 uppercase tracking-wider text-[10px]">Date &amp; Time</th>
+                            <th className="p-3 font-semibold text-slate-300 border-b border-slate-700/60 uppercase tracking-wider text-[10px]">Sport</th>
+                            <th className="p-3 font-semibold text-slate-300 border-b border-slate-700/60 uppercase tracking-wider text-[10px]">Match</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {previewMatches.map((match) => {
+                            const isSelected = selectedMatchIds.includes(match.id);
+                            const originalSport = authorizedSports.find(s => s.name.toLowerCase() === match.sportName);
+                            const displaySport = originalSport ? originalSport.name : match.sportName;
+                            const icon = getSportIcon(match.sportName);
+                            
+                            const matchDate = new Date(match.startTime);
+                            const dateStr = matchDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                            const timeStr = matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                            
+                            return (
+                              <tr 
+                                key={match.id} 
+                                className={`transition-colors cursor-pointer ${isSelected ? 'bg-indigo-500/10 hover:bg-indigo-500/20' : 'hover:bg-slate-800/30'}`}
+                                onClick={() => toggleMatch(match.id)}
+                              >
+                                <td className="p-3 text-center">
+                                  <div className={`w-4 h-4 mx-auto rounded border flex items-center justify-center ${isSelected ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-600'}`}>
+                                    {isSelected && <CheckSquare className="w-4 h-4" />}
+                                  </div>
+                                </td>
+                                <td className="p-3 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                                  <span className="text-slate-300">{dateStr}</span> <span className="text-slate-500">{timeStr}</span>
+                                </td>
+                                <td className="p-3 whitespace-nowrap flex items-center gap-2">
+                                  <span>{icon}</span>
+                                  <span className="text-slate-300">{displaySport}</span>
+                                </td>
+                                <td className="p-3 text-slate-300 truncate max-w-[250px]" title={match.title}>
+                                  {match.title}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {isFilePreviewLoading ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+                      <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+                      <p className="text-sm">Generating file preview…</p>
+                    </div>
+                  ) : previewText ? (
+                    exportFormat === 'csv' ? (
+                      <div className="flex-1 overflow-auto rounded-lg border border-slate-800 bg-slate-900/50">
+                        <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+                          <thead>
+                            <tr className="bg-slate-800/80 sticky top-0 z-10 backdrop-blur-sm">
+                              {parseCSV(previewText)[0]?.map((header, idx) => (
+                                <th key={idx} className="p-3 font-semibold text-slate-300 border-b border-slate-700/60 uppercase tracking-wider text-[10px]">
+                                  {header}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60">
+                            {parseCSV(previewText).slice(1).map((row, rowIdx) => (
+                              <tr key={rowIdx} className="hover:bg-slate-800/30 transition-colors">
+                                {row.map((cell, cellIdx) => (
+                                  <td key={cellIdx} className="p-3 text-slate-400 font-mono text-[11px] truncate max-w-[200px]" title={cell}>
+                                    {cell}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <pre className="flex-1 overflow-auto text-xs leading-relaxed text-slate-300 font-mono whitespace-pre bg-slate-950/60 rounded-lg p-4 border border-slate-900">
+                        {previewText}
+                      </pre>
+                    )
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+                      <AlertTriangle className="w-8 h-8 text-amber-500/50" />
+                      <p className="text-sm">No preview available.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

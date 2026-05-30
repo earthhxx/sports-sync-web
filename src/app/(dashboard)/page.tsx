@@ -173,6 +173,24 @@ export default function Dashboard() {
     });
   };
 
+  const handleSelectAllSports = () => {
+    const selectableSports = authorizedSports
+      .filter((sport) => {
+        const hasEvents = sportsAvailability === null || sportsAvailability.some(a => a.sportName.toLowerCase() === sport.name.toLowerCase() && a.count > 0);
+        const isUnavailable = sportsAvailability !== null && !hasEvents;
+        const isUnfinished = sport.calendarIds?.length === 0;
+        return !isUnavailable && !isUnfinished;
+      })
+      .map((sport) => sport.name);
+    setSelectedSports(selectableSports);
+    setPage(1);
+  };
+
+  const handleClearAllSports = () => {
+    setSelectedSports([]);
+    setPage(1);
+  };
+
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
   };
@@ -277,9 +295,26 @@ export default function Dashboard() {
 
           {/* Sport Selector Checkboxes dynamically from Database */}
           <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Sport Categories
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Sport Categories
+              </h4>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSelectAllSports}
+                  className="text-[10px] font-bold text-teal-400 hover:text-teal-300 transition-colors cursor-pointer uppercase tracking-wide"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-700">|</span>
+                <button
+                  onClick={handleClearAllSports}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors cursor-pointer uppercase tracking-wide"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
             {authorizedSports.length === 0 ? (
               <p className="text-xs text-slate-500 italic">No permitted sports configured.</p>
             ) : (

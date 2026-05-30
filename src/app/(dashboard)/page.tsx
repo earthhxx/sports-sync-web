@@ -16,6 +16,13 @@ interface PaginationMeta {
   totalPages: number;
 }
 
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+const endOfYearStr = () => {
+  const year = new Date().getFullYear();
+  return `${year}-12-31`;
+};
+
 export default function Dashboard() {
   const { user } = useAuthStore();
   const { showToast } = useToast();
@@ -24,9 +31,10 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters State
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(todayStr());
+  const [endDate, setEndDate] = useState(endOfYearStr());
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
+  const [sportsAvailability, setSportsAvailability] = useState<{ sportName: string; count: number }[] | null>(null);
 
   // Pagination State
   const [page, setPage] = useState(1);
@@ -34,7 +42,7 @@ export default function Dashboard() {
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
 
   // Sport categories loaded from database
-  const [sportsList, setSportsList] = useState<{ id: string; name: string; fullName: string }[]>([]);
+  const [sportsList, setSportsList] = useState<{ id: string; name: string; fullName: string; calendarIds?: string[] }[]>([]);
 
   // Fetch sport categories from backend database on mount
   useEffect(() => {
@@ -48,6 +56,20 @@ export default function Dashboard() {
     };
     loadSports();
   }, [showToast]);
+
+  // Fetch sports availability
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      try {
+        const data = await calendarService.getSportsAvailability(startDate, endDate);
+        setSportsAvailability(data);
+      } catch (err) {
+        console.error('Failed to fetch sports availability', err);
+        setSportsAvailability(null);
+      }
+    };
+    fetchAvailability();
+  }, [startDate, endDate]);
 
   // Determine authorized sports based on user roles, permissions, and database sports list
   const authorizedSports = useMemo(() => {
@@ -161,8 +183,8 @@ export default function Dashboard() {
   };
 
   const handleClearFilters = () => {
-    setStartDate('');
-    setEndDate('');
+    setStartDate(todayStr());
+    setEndDate(endOfYearStr());
     setSelectedSports([]);
     setPage(1);
   };
@@ -263,19 +285,35 @@ export default function Dashboard() {
             ) : (
               <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1">
                 {authorizedSports.map((sport) => {
-                  const isChecked = selectedSports.includes(sport.name);
+                  const hasEvents = sportsAvailability === null || sportsAvailability.some(a => a.sportName.toLowerCase() === sport.name.toLowerCase() && a.count > 0);
+                  const isUnavailable = sportsAvailability !== null && !hasEvents;
+                  const isUnfinished = sport.calendarIds?.length === 0;
+
+                  const isDisabled = isUnavailable || isUnfinished;
+                  const isChecked = selectedSports.includes(sport.name) && !isDisabled;
                   return (
                     <button
                       key={sport.name}
-                      onClick={() => handleSportToggle(sport.name)}
-                      className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-white text-left transition-colors cursor-pointer"
+                      onClick={() => !isDisabled && handleSportToggle(sport.name)}
+                      disabled={isDisabled}
+                      className={`flex items-center gap-2.5 text-sm text-left transition-colors group ${
+                        isDisabled ? 'text-slate-500 opacity-60 cursor-not-allowed' : 'text-slate-300 hover:text-white cursor-pointer'
+                      }`}
                     >
                       {isChecked ? (
                         <CheckSquare className="w-4.5 h-4.5 text-teal-400 flex-shrink-0" />
                       ) : (
-                        <Square className="w-4.5 h-4.5 text-slate-600 flex-shrink-0" />
+                        <Square className={`w-4.5 h-4.5 flex-shrink-0 ${isDisabled ? 'text-slate-700' : 'text-slate-600 group-hover:text-slate-400'}`} />
                       )}
-                      <span className="truncate">{sport.fullName || sport.name}</span>
+                      <span className="truncate flex items-center gap-2">
+                        {sport.fullName || sport.name}
+                        {isUnfinished && (
+                          <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-bold">Coming Soon</span>
+                        )}
+                        {isUnavailable && !isUnfinished && (
+                          <span className="text-[9px] bg-slate-800/80 text-slate-500 px-1.5 py-0.5 rounded uppercase tracking-wider">No Matches</span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}

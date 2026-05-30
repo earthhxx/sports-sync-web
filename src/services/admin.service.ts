@@ -60,8 +60,8 @@ export const adminService = {
   },
 
   // Retrieve sport categories
-  async getSports() {
-    const response = await api.get('/admin/sports');
+  async getSports(limit: number = 100) {
+    const response = await api.get(`/admin/sports?limit=${limit}`);
     return response.data;
   },
 

@@ -16,6 +16,14 @@ interface PaginationMeta {
   totalPages: number;
 }
 
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+const weekLaterStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().split('T')[0];
+};
+
 export default function SportsCalendar() {
   const { user } = useAuthStore();
   const { showToast } = useToast();
@@ -24,8 +32,8 @@ export default function SportsCalendar() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters State
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(todayStr());
+  const [endDate, setEndDate] = useState(weekLaterStr());
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
 
   // Pagination State
@@ -34,7 +42,7 @@ export default function SportsCalendar() {
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
 
   // Sport categories
-  const [sportsList, setSportsList] = useState<{ id: string; name: string; fullName: string }[]>([]);
+  const [sportsList, setSportsList] = useState<{ id: string; name: string; fullName: string, calendarIds?: string[] }[]>([]);
 
   // 1. FIXED: แกะข้อมูล array ชัวร์ๆ ป้องกัน select sports หาย
   useEffect(() => {
@@ -120,7 +128,7 @@ export default function SportsCalendar() {
   };
 
   const handleSelectAll = () => {
-    setSelectedSports(authorizedSports.map(s => s.name));
+    setSelectedSports(authorizedSports.filter(s => (s.calendarIds?.length || 0) > 0).map(s => s.name));
     setPage(1);
   };
 
@@ -138,8 +146,8 @@ export default function SportsCalendar() {
   };
 
   const handleClearFilters = () => {
-    setStartDate('');
-    setEndDate('');
+    setStartDate(todayStr());
+    setEndDate(weekLaterStr());
     setSelectedSports([]);
     setPage(1);
   };
@@ -205,16 +213,25 @@ export default function SportsCalendar() {
             ) : (
               <div className="flex flex-col gap-2.5 max-h-60 overflow-y-auto pr-1">
                 {authorizedSports.map((sport) => {
-                  const isChecked = selectedSports.includes(sport.name);
+                  const isUnfinished = sport.calendarIds?.length === 0;
+                  const isChecked = selectedSports.includes(sport.name) && !isUnfinished;
                   return (
                     <button
                       key={sport.name}
                       type="button"
-                      onClick={() => handleSportToggle(sport.name)}
-                      className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-white text-left transition-colors cursor-pointer group"
+                      onClick={() => !isUnfinished && handleSportToggle(sport.name)}
+                      disabled={isUnfinished}
+                      className={`flex items-center gap-2.5 text-sm text-left transition-colors group ${
+                        isUnfinished ? 'text-slate-500 opacity-60 cursor-not-allowed' : 'text-slate-300 hover:text-white cursor-pointer'
+                      }`}
                     >
-                      {isChecked ? <CheckSquare className="w-4.5 h-4.5 text-indigo-400 flex-shrink-0" /> : <Square className="w-4.5 h-4.5 text-slate-600 group-hover:text-slate-400 flex-shrink-0" />}
-                      <span className="truncate">{sport.fullName || sport.name}</span>
+                      {isChecked ? <CheckSquare className="w-4.5 h-4.5 text-indigo-400 flex-shrink-0" /> : <Square className={`w-4.5 h-4.5 flex-shrink-0 ${isUnfinished ? 'text-slate-700' : 'text-slate-600 group-hover:text-slate-400'}`} />}
+                      <span className="truncate flex items-center gap-2">
+                        {sport.fullName || sport.name}
+                        {isUnfinished && (
+                          <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-bold">Coming Soon</span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}

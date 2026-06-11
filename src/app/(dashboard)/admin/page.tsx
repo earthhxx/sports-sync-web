@@ -21,6 +21,7 @@ import {
   ToggleRight,
   ShieldAlert,
   Edit,
+  Key,
   CheckSquare,
   Square,
   AlertTriangle,
@@ -110,6 +111,8 @@ export default function AdminDashboard() {
   // Dialog / Action State
   const [selectedUser, setSelectedUser] = useState<UserManagementItem | null>(null);
   const [roleToAssign, setRoleToAssign] = useState('');
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [resetPasswordText, setResetPasswordText] = useState('');
   
   const [showCreateRoleDialog, setShowCreateRoleDialog] = useState(false);
   const [newRoleName, setNewRoleName] = useState('');
@@ -291,6 +294,27 @@ export default function AdminDashboard() {
       loadUsers();
     } catch (err: any) {
       showToast('error', err.response?.data?.message || 'Failed to assign role.');
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser || !resetPasswordText) return;
+    if (resetPasswordText.length < 6) {
+      showToast('error', 'Password must be at least 6 characters long.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await adminService.resetUserPassword(selectedUser.id, resetPasswordText);
+      showToast('success', `Password for ${selectedUser.email} has been successfully reset.`);
+      setIsResetPasswordOpen(false);
+      setResetPasswordText('');
+      setSelectedUser(null);
+    } catch (err: any) {
+      showToast('error', err.response?.data?.message || 'Failed to reset password.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -759,7 +783,8 @@ export default function AdminDashboard() {
                   <th className="p-4">User</th>
                   <th className="p-4">Email</th>
                   <th className="p-4">Assigned Roles</th>
-                  <th className="p-4 text-center">Actions</th>
+                  <th className="p-4 text-center">Modify Roles</th>
+                  <th className="p-4 text-center">Password Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm text-slate-300">
@@ -825,6 +850,23 @@ export default function AdminDashboard() {
                           Add
                         </Button>
                       </div>
+                    </td>
+
+                    {/* Reset Password Button */}
+                    <td className="p-4 text-center">
+                      {canAssignRole && (
+                        <button
+                          onClick={() => {
+                            setSelectedUser(userItem);
+                            setResetPasswordText('');
+                            setIsResetPasswordOpen(true);
+                          }}
+                          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-purple-400 hover:text-purple-300 bg-purple-500/5 border border-purple-500/25 hover:border-purple-500/40 rounded-xl transition-all cursor-pointer mx-auto"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                          Reset Password
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1642,6 +1684,53 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* RESET PASSWORD DIALOG */}
+      <Dialog
+        isOpen={isResetPasswordOpen}
+        onClose={() => {
+          setIsResetPasswordOpen(false);
+          setResetPasswordText('');
+          setSelectedUser(null);
+        }}
+        title={`Reset Password for ${selectedUser?.email || ''}`}
+        maxWidth="sm"
+      >
+        <form onSubmit={handleResetPassword} className="space-y-6">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Please enter a new password for this user account. The user will be required to use this password on their next login attempt.
+          </p>
+
+          <Input
+            id="reset-password"
+            label="New Password"
+            type="password"
+            placeholder="Min 6 characters..."
+            value={resetPasswordText}
+            onChange={(e) => setResetPasswordText(e.target.value)}
+            className="bg-slate-950 border-slate-800 focus:border-purple-500/50"
+            required
+            minLength={6}
+          />
+
+          <div className="flex gap-3 justify-end pt-4 border-t border-slate-800">
+            <Button type="button" variant="ghost" onClick={() => {
+              setIsResetPasswordOpen(false);
+              setResetPasswordText('');
+              setSelectedUser(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.2)]"
+            >
+              Reset Password
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
 }

@@ -13,6 +13,12 @@ export const adminService = {
     return response.data;
   },
 
+  // Reset user password (admin bypass)
+  async resetUserPassword(userId: string, passwordStr: string) {
+    const response = await api.patch(`/admin/users/${userId}/password`, { password: passwordStr });
+    return response.data;
+  },
+
   // Revoke role from user
   async revokeUserRole(userId: string, roleNames: string[]) {
     const response = await api.delete(`/admin/users/${userId}/roles`, {

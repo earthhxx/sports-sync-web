@@ -28,6 +28,67 @@ export default function Profile() {
   const [showDisableDialog, setShowDisableDialog] = useState(false);
   const [disableCode, setDisableCode] = useState('');
 
+  // Change Password States
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordOtp, setPasswordOtp] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+
+  // OTP Cooldown effect
+  useEffect(() => {
+    if (otpCooldown > 0) {
+      const timer = setTimeout(() => setOtpCooldown(otpCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCooldown]);
+
+  const handleRequestOtp = async () => {
+    setIsUpdating(true);
+    try {
+      await authService.requestPasswordOtp();
+      showToast('success', 'OTP has been sent to your email.');
+      setOtpRequested(true);
+      setOtpCooldown(60);
+    } catch (err: any) {
+      showToast('error', err.response?.data?.message || 'Failed to request OTP.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword || !confirmPassword || !passwordOtp) {
+      showToast('error', 'Please fill in all fields including the OTP code.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast('error', 'Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      showToast('error', 'Password must be at least 6 characters long.');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await authService.changePassword(newPassword, passwordOtp);
+      showToast('success', 'Password changed successfully!');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordOtp('');
+      setOtpRequested(false);
+    } catch (err: any) {
+      showToast('error', err.response?.data?.message || 'Failed to change password.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   // 1. Fetch current profile details to determine 2FA status
   const check2FAStatus = async () => {
     if (!user) return;
@@ -231,55 +292,149 @@ export default function Profile() {
           )}
         </div>
 
-        {/* 2FA Security Card */}
-        <div className="md:col-span-1 glass-panel rounded-xl p-6 space-y-6">
-          <h3 className="text-base font-semibold text-slate-200 border-b border-slate-800 pb-3 flex items-center gap-2">
-            <Lock className="w-5 h-5 text-purple-400" />
-            2FA Security
-          </h3>
+        {/* Right column wrapper */}
+        <div className="md:col-span-1 space-y-6">
+          {/* 2FA Security Card */}
+          <div className="glass-panel rounded-xl p-6 space-y-6">
+            <h3 className="text-base font-semibold text-slate-200 border-b border-slate-800 pb-3 flex items-center gap-2">
+              <Lock className="w-5 h-5 text-purple-400" />
+              2FA Security
+            </h3>
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-200">Two-Factor Authentication</h4>
-                <p className="text-xs text-slate-500 mt-0.5">Secure your account with TOTP codes</p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-200">Two-Factor Authentication</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">Secure your account with TOTP codes</p>
+                </div>
+                <span
+                  className={`px-2.5 py-1 text-xs font-semibold rounded ${
+                    isTwoFactorEnabled
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {isTwoFactorEnabled ? 'Enabled' : 'Disabled'}
+                </span>
               </div>
-              <span
-                className={`px-2.5 py-1 text-xs font-semibold rounded ${
-                  isTwoFactorEnabled
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-slate-800 text-slate-400 border border-slate-700'
-                }`}
-              >
-                {isTwoFactorEnabled ? 'Enabled' : 'Disabled'}
-              </span>
+
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Two-Factor Authentication adds an extra layer of security. Once active, signing in will require a code from your authenticator app in addition to your password.
+              </p>
+
+              {isTwoFactorEnabled ? (
+                <Button
+                  variant="danger"
+                  className="w-full"
+                  onClick={() => setShowDisableDialog(true)}
+                  disabled={isUpdating}
+                >
+                  <Unlock className="w-4 h-4 mr-2" />
+                  Disable 2FA
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={handleInitiateSetup}
+                  disabled={isUpdating}
+                >
+                  <Lock className="w-4 h-4 mr-2" />
+                  Enable 2FA
+                </Button>
+              )}
             </div>
+          </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Two-Factor Authentication adds an extra layer of security. Once active, signing in will require a code from your authenticator app in addition to your password.
-            </p>
+          {/* Change Password Card */}
+          <div className="glass-panel rounded-xl p-6 space-y-6">
+            <h3 className="text-base font-semibold text-slate-200 border-b border-slate-800 pb-3 flex items-center gap-2">
+              <Key className="w-5 h-5 text-indigo-400" />
+              Change Password
+            </h3>
 
-            {isTwoFactorEnabled ? (
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    placeholder="Min 6 characters..."
+                    label="New Password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="bg-slate-950 border-slate-800 focus:border-indigo-500/50 pr-10"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-[34px] text-slate-500 hover:text-slate-300 cursor-pointer"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div className="relative">
+                  <Input
+                    id="confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Min 6 characters..."
+                    label="Confirm Password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="bg-slate-950 border-slate-800 focus:border-indigo-500/50 pr-10"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-[34px] text-slate-500 hover:text-slate-300 cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-800/60 space-y-3">
+                <div className="flex justify-between items-end gap-2">
+                  <div className="flex-1">
+                    <Input
+                      id="password-otp"
+                      type="text"
+                      placeholder="Enter 6-digit OTP"
+                      label="OTP Verification"
+                      value={passwordOtp}
+                      onChange={(e) => setPasswordOtp(e.target.value.replace(/\D/g, ''))}
+                      maxLength={6}
+                      className="bg-slate-950 border-slate-800 focus:border-indigo-500/50 text-center font-mono tracking-widest"
+                      disabled={!otpRequested}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleRequestOtp}
+                    disabled={isUpdating || otpCooldown > 0}
+                    className="mb-1 text-xs shrink-0 cursor-pointer"
+                  >
+                    {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : otpRequested ? 'Resend OTP' : 'Request OTP'}
+                  </Button>
+                </div>
+              </div>
+
               <Button
-                variant="danger"
-                className="w-full"
-                onClick={() => setShowDisableDialog(true)}
-                disabled={isUpdating}
+                type="submit"
+                variant="primary"
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] mt-2 cursor-pointer"
+                disabled={isUpdating || !otpRequested}
               >
-                <Unlock className="w-4 h-4 mr-2" />
-                Disable 2FA
+                Update Password
               </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={handleInitiateSetup}
-                disabled={isUpdating}
-              >
-                <Lock className="w-4 h-4 mr-2" />
-                Enable 2FA
-              </Button>
-            )}
+            </form>
           </div>
         </div>
       </div>

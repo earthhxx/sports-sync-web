@@ -21,6 +21,7 @@ import {
   ToggleRight,
   ShieldAlert,
   Edit,
+  Key,
   CheckSquare,
   Square,
   AlertTriangle,
@@ -30,6 +31,7 @@ import {
   Sparkles,
   Clock,
   TrendingUp,
+  HelpCircle,
 } from 'lucide-react';
 import { UserManagementItem, Role, SportCategory } from '@/types';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -41,6 +43,10 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+  const [infoLang, setInfoLang] = useState<'en' | 'th'>('th');
+  const [isSyncInfoModalOpen, setIsSyncInfoModalOpen] = useState(false);
+  const [syncInfoLang, setSyncInfoLang] = useState<'en' | 'th'>('th');
 
   // Permission hooks
   const canReadDashboard = useHasPermission('read:dashboard');
@@ -105,6 +111,8 @@ export default function AdminDashboard() {
   // Dialog / Action State
   const [selectedUser, setSelectedUser] = useState<UserManagementItem | null>(null);
   const [roleToAssign, setRoleToAssign] = useState('');
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [resetPasswordText, setResetPasswordText] = useState('');
   
   const [showCreateRoleDialog, setShowCreateRoleDialog] = useState(false);
   const [newRoleName, setNewRoleName] = useState('');
@@ -289,6 +297,27 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser || !resetPasswordText) return;
+    if (resetPasswordText.length < 6) {
+      showToast('error', 'Password must be at least 6 characters long.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await adminService.resetUserPassword(selectedUser.id, resetPasswordText);
+      showToast('success', `Password for ${selectedUser.email} has been successfully reset.`);
+      setIsResetPasswordOpen(false);
+      setResetPasswordText('');
+      setSelectedUser(null);
+    } catch (err: any) {
+      showToast('error', err.response?.data?.message || 'Failed to reset password.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRevokeRole = async (userId: string, roleName: string) => {
     if (roleName === 'ADMIN' && users.find(u => u.id === userId)?.email === 'admin@sportssync.com') {
       showToast('error', 'Cannot revoke ADMIN role from primary administrator account.');
@@ -451,12 +480,21 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="p-6 glass-panel rounded-xl glow-teal">
-        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          <Shield className="w-6 h-6 text-teal-400" />
-          Admin Control Panel
-        </h1>
-        <p className="text-sm text-slate-400">Manage user access privileges, roles, permissions, and sport schedules.</p>
+      <div className="p-6 glass-panel rounded-xl glow-teal flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <Shield className="w-6 h-6 text-teal-400" />
+            Admin Control Panel
+          </h1>
+          <p className="text-sm text-slate-400">Manage user access privileges, roles, permissions, and sport schedules.</p>
+        </div>
+        <button
+          onClick={() => setIsInfoModalOpen(true)}
+          className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-500/5 border border-indigo-500/25 hover:border-indigo-500/40 rounded-xl transition-all cursor-pointer self-start sm:self-center"
+        >
+          <HelpCircle className="w-4 h-4" />
+          How it works
+        </button>
       </div>
 
       {/* Tabs list */}
@@ -558,14 +596,23 @@ export default function AdminDashboard() {
             <div className="lg:col-span-2 glass-panel rounded-xl p-6 border border-slate-800/60 shadow-xl space-y-6 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-96 h-96 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
               
-              <div className="flex items-center gap-3 border-b border-slate-800/80 pb-4">
-                <div className="bg-teal-500/10 text-teal-400 p-2 rounded-lg border border-teal-500/20">
-                  <RefreshCw className="w-5 h-5" />
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-teal-500/10 text-teal-400 p-2 rounded-lg border border-teal-500/20">
+                    <RefreshCw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white tracking-wide">Sync Control & Quota Simulator</h2>
+                    <p className="text-xs text-slate-400">Monitor daily API limit consumption and trigger a global database schedule refresh.</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white tracking-wide">Sync Control & Quota Simulator</h2>
-                  <p className="text-xs text-slate-400">Monitor daily API limit consumption and trigger a global database schedule refresh.</p>
-                </div>
+                <button
+                  onClick={() => setIsSyncInfoModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-teal-400 hover:text-teal-350 bg-teal-500/5 border border-teal-500/25 hover:border-teal-500/45 rounded-lg transition-all cursor-pointer"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  Help
+                </button>
               </div>
 
               {/* Calculator Settings */}
@@ -736,7 +783,8 @@ export default function AdminDashboard() {
                   <th className="p-4">User</th>
                   <th className="p-4">Email</th>
                   <th className="p-4">Assigned Roles</th>
-                  <th className="p-4 text-center">Actions</th>
+                  <th className="p-4 text-center">Modify Roles</th>
+                  <th className="p-4 text-center">Password Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm text-slate-300">
@@ -802,6 +850,23 @@ export default function AdminDashboard() {
                           Add
                         </Button>
                       </div>
+                    </td>
+
+                    {/* Reset Password Button */}
+                    <td className="p-4 text-center">
+                      {canAssignRole && (
+                        <button
+                          onClick={() => {
+                            setSelectedUser(userItem);
+                            setResetPasswordText('');
+                            setIsResetPasswordOpen(true);
+                          }}
+                          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-purple-400 hover:text-purple-300 bg-purple-500/5 border border-purple-500/25 hover:border-purple-500/40 rounded-xl transition-all cursor-pointer mx-auto"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                          Reset Password
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1336,6 +1401,335 @@ export default function AdminDashboard() {
             </Button>
           </div>
         </div>
+      </Dialog>
+
+      {/* How It Works Explanation Modal */}
+      {isInfoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="glass-panel border-slate-800/80 w-full max-w-xl p-6 rounded-2xl shadow-2xl relative z-10 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            {/* Header with Language Tabs */}
+            <div className="flex items-center justify-between border-b border-slate-800/60 pb-4 mb-4 flex-shrink-0">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-indigo-400 animate-pulse" />
+                {infoLang === 'th' ? 'หลักการทำงานของระบบแอดมิน' : 'How Admin Panel Works'}
+              </h3>
+              <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                <button
+                  onClick={() => setInfoLang('th')}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    infoLang === 'th'
+                      ? 'bg-indigo-500/20 text-indigo-300 font-semibold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  ภาษาไทย
+                </button>
+                <button
+                  onClick={() => setInfoLang('en')}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    infoLang === 'en'
+                      ? 'bg-indigo-500/20 text-indigo-300 font-semibold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  English
+                </button>
+              </div>
+            </div>
+
+            {/* Description Body */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-slate-300 text-xs sm:text-sm leading-relaxed">
+              {infoLang === 'th' ? (
+                <>
+                  <p className="text-slate-405 mb-4">
+                    หน้านี้คือศูนย์กลางสำหรับผู้ดูแลระบบ เพื่อควบคุมสิทธิ์การใช้งาน บทบาทหน้าที่ และปรับแต่งโครงสร้างหมวดหมู่กีฬาเพื่อใช้เปรียบเทียบตารางแข่งขัน
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        1. แดชบอร์ดสรุปผล & โปรแกรมจำลองโควตา
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        แสดงข้อมูลภาพรวม และจำลองโควตาการดึงข้อมูลจากระบบ Google Calendar อัตโนมัติในแต่ละวัน เพื่อควบคุมปริมาณการใช้งานไม่ให้เกิดสิทธิ์การเข้าถึงลิมิตของ Google API ในการดึงข้อมูล
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        2. ทะเบียนรายชื่อและสิทธิ์สมาชิก (User Directories)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        เป็นหน้ารวมข้อมูลบัญชีที่ลงทะเบียนในระบบ แอดมินสามารถกำหนดตำแหน่ง/บทบาท (เช่น ADMIN, USER) หรือถอดถอนกลุ่มบทบาทออกเพื่อจำกัดการเข้าใช้งานเมนูของระบบได้
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        3. การจัดการบทบาทและสิทธิ์พิเศษ (Roles & Privileges)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        ปรับแต่งสิทธิ์ในการอ่าน เขียน หรือควบคุมระบบในแต่ละกลุ่มตำแหน่งอย่างละเอียด เพื่อความปลอดภัยสูงสุด (เช่น ให้สิทธิ์บางตำแหน่งดูตารางแข่งได้อย่างเดียว แต่ไม่มีสิทธิ์ดึงข้อมูลปฏิทินสด)
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        4. การปรับแต่งประเภทกีฬา (Sport Configurations)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        ตั้งค่ารายชื่อกีฬาทั้งหมด ใส่รหัสของ Google Calendar (Calendar IDs) สำหรับใช้ดึงข้อมูลตารางการแข่งขันอย่างเป็นทางการเพื่อนำมาจับคู่ในระบบ Reconciler
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-slate-405 mb-4">
+                    This dashboard is the central administration panel for managing system roles, user access configurations, and sports schedules API integration.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        1. Dashboard Summary & Quota Simulator
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Monitor active parameters and run quota projection calculations to ensure automated background sync queries remain safely within the limits of Google API thresholds.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        2. User Directories
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Review all accounts registered in the platform. Administrators can grant or revoke roles (e.g. USER, ADMIN) to modify user permissions instantly.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        3. Roles & Privileges
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Manage security privileges. Toggle granular access controls (such as write options, sync controls, or read rules) for each defined system role.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        4. Sport Configuration Channels
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Configure sport categories, toggle status, and input calendar channel targets (Google Calendar IDs) used to retrieve tournament data.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-slate-800/60 pt-4 mt-4 flex justify-end flex-shrink-0">
+              <button
+                onClick={() => setIsInfoModalOpen(false)}
+                className="px-5 py-2 rounded-xl text-xs font-semibold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 transition-all cursor-pointer shadow-lg shadow-teal-500/15"
+              >
+                {infoLang === 'th' ? 'เข้าใจแล้ว' : 'Got it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Control & Quota Simulator Explanation Modal */}
+      {isSyncInfoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="glass-panel border-slate-800/80 w-full max-w-xl p-6 rounded-2xl shadow-2xl relative z-10 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            {/* Header with Language Tabs */}
+            <div className="flex items-center justify-between border-b border-slate-800/60 pb-4 mb-4 flex-shrink-0">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-teal-400 animate-pulse" />
+                {syncInfoLang === 'th' ? 'หลักการซิงค์และจำลองโควตา' : 'Sync Control & Quota Simulator'}
+              </h3>
+              <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                <button
+                  onClick={() => setSyncInfoLang('th')}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    syncInfoLang === 'th'
+                      ? 'bg-teal-500/20 text-teal-300 font-semibold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  ภาษาไทย
+                </button>
+                <button
+                  onClick={() => setSyncInfoLang('en')}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    syncInfoLang === 'en'
+                      ? 'bg-teal-500/20 text-teal-300 font-semibold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  English
+                </button>
+              </div>
+            </div>
+
+            {/* Description Body */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-slate-300 text-xs sm:text-sm leading-relaxed">
+              {syncInfoLang === 'th' ? (
+                <>
+                  <p className="text-slate-405 mb-4">
+                    บริการ Google Calendar API มีขีดจำกัดโควตาการดึงข้อมูลสูงสุดอยู่ที่ <strong>1,000,000 คำขอต่อวัน</strong> ระบบนี้ช่วยให้ประเมินการใช้งานปฏิทินทั้งหมดได้ล่วงหน้า
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        ปัจจัยในการคำนวณโควตา
+                      </h4>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-slate-400">
+                        <li><strong>จำนวนช่องปฏิทิน (Connected Calendars):</strong> นับจำนวนปฏิทินจริงทั้งหมดที่บริษัทผูกไว้ในระบบกีฬา (แต่ละปฏิทินใช้ 1 คำขอต่อการซิงค์ 1 ครั้ง)</li>
+                        <li><strong>ความถี่ในการซิงค์ข้อมูล (Cron Frequency):</strong> ตัวเลือกรอบการทำงานดึงข้อมูลอัตโนมัติ (เช่น ทุกๆ 360 นาที หรือ 6 ชั่วโมง)</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        สูตรคำนวณเบื้องหลัง
+                      </h4>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-slate-400 font-mono text-[11px]">
+                        <li>จำนวนรอบซิงค์ต่อวัน = 1,440 นาที (24 ชั่วโมง) / ความถี่ที่คุณกรอก</li>
+                        <li>ปริมาณคำขอแบบออโต้รายวัน = จำนวนรอบซิงค์ต่อวัน × จำนวนช่องปฏิทิน</li>
+                        <li>ปริมาณคำขอทั้งหมดคาดการณ์ = คำขอรายวันจากระบบออโต้ + คำขอดึงข้อมูลด้วยตนเอง (Manual Sync)</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-rose-500"></span>
+                        คำเตือนและข้อควรระวัง
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        หากตั้งความถี่สั้นเกินไป (เช่น ซิงค์ทุกๆ 1-5 นาที) จะทำให้มีปริมาณเรียกข้อมูลที่สูงมากเกินความจำเป็น และอาจทำให้ Google บล็อกการทำงานชั่วคราว (Quota Exceeded) แอดมินจึงควรปรับค่าความถี่เพื่อคงแถบสถานะเป็นสีเขียวปลอดภัยเสมอ
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-slate-405 mb-4">
+                    The Google Calendar API enforces a limit of <strong>1,000,000 requests per day</strong>. This simulator calculates expected API consumption based on active sport setups.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        Quota Metrics Variables
+                      </h4>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-slate-400">
+                        <li><strong>Connected Calendars:</strong> Total calendar feeds configured across all active sports. Each calendar consumes 1 request per sync.</li>
+                        <li><strong>Cron Frequency:</strong> Interval set for automated background synchronizations (e.g. every 360 minutes / 6 hours).</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        Calculations
+                      </h4>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-slate-400 font-mono text-[11px]">
+                        <li>Sync Runs Per Day = 1,440 minutes (24 hours) / Sync Frequency</li>
+                        <li>Automated Requests = Sync Runs Per Day × Connected Calendars</li>
+                        <li>Projected Daily Requests = Automated Requests + Manual Sync Requests</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-rose-500"></span>
+                        Key Precautionary Rule
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Setting sync frequency too short (e.g., every 1 or 5 minutes) consumes a high number of queries, leading to temporary lockouts (Quota Exceeded). Ensure projected daily parameters remain in the safe green status bar.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-slate-800/60 pt-4 mt-4 flex justify-end flex-shrink-0">
+              <button
+                onClick={() => setIsSyncInfoModalOpen(false)}
+                className="px-5 py-2 rounded-xl text-xs font-semibold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 transition-all cursor-pointer shadow-lg shadow-teal-500/15"
+              >
+                {syncInfoLang === 'th' ? 'เข้าใจแล้ว' : 'Got it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET PASSWORD DIALOG */}
+      <Dialog
+        isOpen={isResetPasswordOpen}
+        onClose={() => {
+          setIsResetPasswordOpen(false);
+          setResetPasswordText('');
+          setSelectedUser(null);
+        }}
+        title={`Reset Password for ${selectedUser?.email || ''}`}
+        maxWidth="sm"
+      >
+        <form onSubmit={handleResetPassword} className="space-y-6">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Please enter a new password for this user account. The user will be required to use this password on their next login attempt.
+          </p>
+
+          <Input
+            id="reset-password"
+            label="New Password"
+            type="password"
+            placeholder="Min 6 characters..."
+            value={resetPasswordText}
+            onChange={(e) => setResetPasswordText(e.target.value)}
+            className="bg-slate-950 border-slate-800 focus:border-purple-500/50"
+            required
+            minLength={6}
+          />
+
+          <div className="flex gap-3 justify-end pt-4 border-t border-slate-800">
+            <Button type="button" variant="ghost" onClick={() => {
+              setIsResetPasswordOpen(false);
+              setResetPasswordText('');
+              setSelectedUser(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.2)]"
+            >
+              Reset Password
+            </Button>
+          </div>
+        </form>
       </Dialog>
     </div>
   );

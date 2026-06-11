@@ -15,6 +15,7 @@ import {
   Loader2,
   AlertTriangle,
   Sparkles,
+  HelpCircle,
 } from 'lucide-react';
 import { SportCategory } from '@/types';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -128,6 +129,8 @@ export default function ScheduleExportPage() {
   const [activeTab, setActiveTab] = useState<'selection' | 'file'>('selection');
   const [previewText, setPreviewText] = useState<string | null>(null);
   const [isFilePreviewLoading, setIsFilePreviewLoading] = useState(false);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+  const [infoLang, setInfoLang] = useState<'en' | 'th'>('th');
 
   // Filter sports categories based on user read permissions
   const authorizedSports = useMemo(() => {
@@ -329,16 +332,25 @@ export default function ScheduleExportPage() {
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
       <div className="p-6 glass-panel rounded-xl glow-teal relative z-10">
-        <div className="flex items-center gap-3">
-          <div className="bg-indigo-500/10 text-indigo-400 p-2.5 rounded-lg border border-indigo-500/20">
-            <FileText className="w-6 h-6" />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-500/10 text-indigo-400 p-2.5 rounded-lg border border-indigo-500/20">
+              <FileText className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">Sports Schedule Export</h1>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Filter by date range &amp; sports, then export a formatted TXT or CSV schedule file.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Sports Schedule Export</h1>
-            <p className="text-sm text-slate-400 mt-0.5">
-              Filter by date range &amp; sports, then export a formatted TXT or CSV schedule file.
-            </p>
-          </div>
+          <button
+            onClick={() => setIsInfoModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-500/5 border border-indigo-500/25 hover:border-indigo-500/40 rounded-xl transition-all cursor-pointer self-start sm:self-center"
+          >
+            <HelpCircle className="w-4 h-4" />
+            How it works
+          </button>
         </div>
       </div>
 
@@ -711,6 +723,156 @@ export default function ScheduleExportPage() {
           </div>
         </div>
       </div>
+
+      {/* How It Works Explanation Modal */}
+      {isInfoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="glass-panel border-slate-800/80 w-full max-w-xl p-6 rounded-2xl shadow-2xl relative z-10 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            {/* Header with Language Tabs */}
+            <div className="flex items-center justify-between border-b border-slate-800/60 pb-4 mb-4 flex-shrink-0">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-indigo-400 animate-pulse" />
+                {infoLang === 'th' ? 'หลักการทำงานของระบบ Export' : 'How Export Works'}
+              </h3>
+              <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                <button
+                  onClick={() => setInfoLang('th')}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    infoLang === 'th'
+                      ? 'bg-indigo-500/20 text-indigo-300 font-semibold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  ภาษาไทย
+                </button>
+                <button
+                  onClick={() => setInfoLang('en')}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    infoLang === 'en'
+                      ? 'bg-indigo-500/20 text-indigo-300 font-semibold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  English
+                </button>
+              </div>
+            </div>
+
+            {/* Description Body */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-slate-300 text-xs sm:text-sm leading-relaxed">
+              {infoLang === 'th' ? (
+                <>
+                  <p className="text-slate-405 mb-4">
+                    หน้านี้ใช้สำหรับค้นหาตารางการแข่งขันที่ได้รับอนุญาต เลือกแมตช์ที่ต้องการ และส่งออก (Export) เป็นไฟล์สำหรับส่งให้พันธมิตรหรือใช้งานต่ออย่างมีระบบ
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        1. การกรองตารางการแข่งขัน
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        ระบุช่วงวันที่ที่คุณสนใจ และติ๊กเลือกประเภทกีฬาที่ได้รับการอนุญาต (หากกีฬาใดไม่มีข้อมูลแมตช์จริงในช่วงเวลานั้น ระบบจะแสดงป้าย "No Matches" และปิดปุ่มไว้เพื่อประหยัดเวลาเลือก)
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        2. เลือกคู่การแข่งขันเฉพาะเจาะจง
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        เมื่อกดปุ่ม "Preview & Select Matches" ข้อมูลจะปรากฏทางขวามือ คุณสามารถกดเลือกคู่การแข่งที่จะเก็บไว้ หรือกดติ๊กออกคู่ที่ไม่เกี่ยวข้องได้ทีละคู่
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        3. ตรวจเช็กหน้าตาไฟล์ (File Preview)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        คุณสามารถเปลี่ยนแท็บด้านขวาไปที่ "File Preview" เพื่อจำลองหน้าตาของเอกสารจริงที่จะได้รับ ก่อนดาวน์โหลดเก็บไว้
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        4. สองฟอร์แมตไฟล์สำหรับการนำออก
+                      </h4>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-slate-400">
+                        <li><strong>Plain Text (TXT):</strong> รายงานสรุปแบบข้อความพิมพ์ปกติ เหมาะสำหรับนำไปคัดลอกส่งต่อคู่ค้า</li>
+                        <li><strong>CSV Sheet (CSV):</strong> ตารางชีตข้อมูลแยกช่องตารางชัดเจน เหมาะสำหรับเปิดคำนวณต่อบน Excel หรือ Google Sheets</li>
+                      </ul>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-slate-405 mb-4">
+                    This screen allows you to search for tournament schedules, filter out unnecessary match entries, preview reports, and export clean files.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        1. Schedule Filtering
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Specify date boundaries and select sport categories. (Sports without matches are marked "No Matches" and disabled to save your selection time).
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        2. Selecting Matches
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Click "Preview & Select Matches" to display active events. Check or uncheck entries to choose which matches are exported.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        3. Visual File Preview
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Navigate to the "File Preview" tab to check the generated file format layout before downloading it.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-slate-100 mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded bg-teal-400"></span>
+                        4. Export File Options
+                      </h4>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-slate-400">
+                        <li><strong>Plain Text (TXT):</strong> A formatted raw text document suitable for copy-pasting.</li>
+                        <li><strong>CSV Sheet (CSV):</strong> A structured spreadsheet file ready for Excel or Google Sheets.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-slate-800/60 pt-4 mt-4 flex justify-end flex-shrink-0">
+              <button
+                onClick={() => setIsInfoModalOpen(false)}
+                className="px-5 py-2 rounded-xl text-xs font-semibold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 transition-all cursor-pointer shadow-lg shadow-teal-500/15"
+              >
+                {infoLang === 'th' ? 'เข้าใจแล้ว' : 'Got it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

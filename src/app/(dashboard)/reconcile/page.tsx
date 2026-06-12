@@ -123,7 +123,6 @@ export default function ReconcilePage() {
       }
     }
 
-    let missingInImport: any[] = [];
     if (start && end) {
       try {
         const sportsData = await calendarService.getSports();
@@ -170,16 +169,7 @@ export default function ReconcilePage() {
           if (c.db?.id) matchedDbIds.add(c.db.id);
         });
 
-        converted.forEach((dbEv: any) => {
-          if (!matchedDbIds.has(dbEv.id)) {
-            missingInImport.push({
-              parsed: null,
-              db: dbEv,
-              reason: `Missing in schedule: Database has this event scheduled but it's not in your imported file`,
-              field: 'missing_in_import'
-            });
-          }
-        });
+        // We no longer track or show events that are present in the DB but missing from the imported schedule.
       } catch (err) {
         console.error('Failed to fetch calendar events from database:', err);
       }
@@ -187,7 +177,7 @@ export default function ReconcilePage() {
 
     const res = {
       matched: recon.matched,
-      conflicts: [...recon.conflicts, ...missingInImport],
+      conflicts: recon.conflicts,
       manual_review: recon.manual_review,
       allParsed: events,
     };

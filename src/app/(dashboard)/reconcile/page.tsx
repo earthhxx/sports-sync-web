@@ -970,7 +970,14 @@ export default function ReconcilePage() {
                         {(() => {
                           const targetDate = item.parsed?.date || item.db?.date;
                           if (!targetDate) return null;
-                          const dailyEvs = dbEvents.filter(ev => ev.date === targetDate);
+                          
+                          const conflictLeague = (item.db?.league || item.parsed?.league || '').toLowerCase().trim();
+                          const dailyEvs = dbEvents.filter(ev => {
+                            if (ev.date !== targetDate) return false;
+                            if (!conflictLeague) return true;
+                            const evLeague = (ev.league || '').toLowerCase().trim();
+                            return evLeague === conflictLeague || evLeague.includes(conflictLeague) || conflictLeague.includes(evLeague);
+                          });
                           
                           // Fallback: If for some reason the calendar service didn't return this conflict's db record, add it manually
                           if (item.db && !dailyEvs.some(ev => ev.id === item.db?.id)) {
@@ -981,7 +988,7 @@ export default function ReconcilePage() {
                             <div className="p-3 rounded-lg bg-slate-900/40 border border-slate-800/80 text-xs space-y-2">
                               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                                 <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                                All Database Events Scheduled for {targetDate}:
+                                Database Events for {item.db?.league || item.parsed?.league || 'Sport'} on {targetDate}:
                               </div>
                               <div className="flex flex-wrap gap-2 max-h-[150px] overflow-y-auto pr-1 custom-scrollbar">
                                 {dailyEvs.length === 0 ? (

@@ -94,6 +94,7 @@ export const useAuthStore = create<AuthState>((set) => ({
             const dbPerms = user.permissions?.sort().join(',') || '';
 
             if (tokenRoles !== dbRoles || tokenPerms !== dbPerms) {
+              let refreshSuccessful = false;
               if (initialRefreshToken) { 
                 try {
                   const refreshRes = await api.post('/auth/refresh', {
@@ -109,12 +110,26 @@ export const useAuthStore = create<AuthState>((set) => ({
                       const newRefresh = String(refreshRes.data.refresh_token);
                       Cookies.set('refresh_token', newRefresh, { expires: 7, secure: true, sameSite: 'strict' });
                     }
+                    refreshSuccessful = true;
                   }
                 } catch (refreshErr) {
-                  if (typeof window !== 'undefined') {
-                    window.location.href = '/'; 
-                  }
+                  // Fall through to logout below
                 }
+              }
+
+              if (!refreshSuccessful) {
+                Cookies.remove('access_token');
+                Cookies.remove('refresh_token');
+                set({
+                  accessToken: null,
+                  user: null,
+                  isAuthenticated: false,
+                  isLoading: false,
+                });
+                if (typeof window !== 'undefined') {
+                  window.location.href = '/login'; 
+                }
+                return;
               }
             }
           }

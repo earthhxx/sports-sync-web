@@ -131,8 +131,73 @@ const getEventProximity = (startTimeStr: string, endTimeStr: string) => {
   }
 };
 
-// Dynamic Sport Logo component using official brand domains with Clearbit Logo API (Stable CDN, no hotlink block)
-// Automatically falls back to premium styled Lucide icons if the image fails to load.
+// Helper to resolve local sport logo paths based on sportName
+const getSportLogoUrl = (sportName: string) => {
+  const name = sportName.toLowerCase();
+  if (name.includes('ufc')) return '/sport-logo/ufc.png';
+  if (name.includes('pga')) return '/sport-logo/PGA.png';
+  if (name.includes('one championship')) return '/sport-logo/ONE_Championship_company_logo.png';
+  if (name.includes('nrl')) return '/sport-logo/NRL.png';
+  if (name.includes('nba')) return '/sport-logo/NBA.png';
+  if (name.includes('motogp')) return '/sport-logo/motogp.png';
+  if (name.includes('premier') || name.includes('football (premier league)')) return '/sport-logo/Premier.png';
+  if (name.includes('cricket')) return '/sport-logo/Cricket.png';
+  if (name.includes('afl')) return '/sport-logo/afl.png';
+  if (name.includes('nfl')) return '/sport-logo/NFL.png';
+  if (name.includes('nhl')) return '/sport-logo/nhl.png';
+  if (name.includes('mlb')) return '/sport-logo/Major_League_Baseball.svg.png';
+  if (name.includes('fifa') || name.includes('world cup')) return '/sport-logo/fifa.jpg';
+  if (name.includes('formula 1') || name.includes('f1')) return '/sport-logo/formula-1.png';
+  return null;
+};
+
+// Mini logo component for sub-category filter pills with stable Lucide icon fallbacks
+const FilterSportLogo: React.FC<{ sportName: string; isChecked: boolean; isDisabled: boolean }> = ({ sportName, isChecked, isDisabled }) => {
+  const name = sportName.toLowerCase();
+  const logoUrl = getSportLogoUrl(sportName);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [sportName]);
+
+  const designFallback = useMemo(() => {
+    if (name.includes('ufc') || name.includes('one championship') || name.includes('combat')) {
+      return Flame;
+    }
+    if (name.includes('motogp') || name.includes('formula 1') || name.includes('f1') || name.includes('motorsport')) {
+      return Zap;
+    }
+    if (name.includes('nba') || name.includes('basketball')) {
+      return Activity;
+    }
+    return Trophy;
+  }, [name]);
+
+  if (!logoUrl || hasError) {
+    const FallbackIcon = designFallback;
+    return (
+      <FallbackIcon 
+        className={`w-16 h-16 transition-all duration-300 ${
+          isDisabled ? 'opacity-40' : ''
+        } ${isChecked ? 'scale-110' : 'group-hover:scale-110'}`} 
+      />
+    );
+  }
+
+  return (
+    <img
+      src={logoUrl}
+      alt={sportName}
+      className={`w-24 h-24 object-contain flex-shrink-0 transition-all duration-300 bg-white p-1.5 rounded-xl ${
+        isDisabled ? 'opacity-30 grayscale' : ''
+      } ${isChecked ? 'scale-110' : 'group-hover:scale-110'}`}
+      onError={() => setHasError(true)}
+    />
+  );
+};
+
+// Dynamic Sport Logo component using local images with fallback support
 const SportLogo: React.FC<{ sportName: string }> = ({ sportName }) => {
   const name = sportName.toLowerCase();
   const [hasError, setHasError] = useState(false);
@@ -141,23 +206,7 @@ const SportLogo: React.FC<{ sportName: string }> = ({ sportName }) => {
     setHasError(false);
   }, [sportName]);
   
-  const logoUrl = useMemo(() => {
-    if (name.includes('ufc')) return '/sport-logo/ufc.png';
-    if (name.includes('pga')) return '/sport-logo/PGA.png';
-    if (name.includes('one championship')) return '/sport-logo/ONE_Championship_company_logo.png';
-    if (name.includes('nrl')) return '/sport-logo/NRL.png';
-    if (name.includes('nba')) return '/sport-logo/NBA.png';
-    if (name.includes('motogp')) return '/sport-logo/motogp.png';
-    if (name.includes('premier') || name.includes('football (premier league)')) return '/sport-logo/Premier.png';
-    if (name.includes('cricket')) return '/sport-logo/Cricket.png';
-    if (name.includes('afl')) return '/sport-logo/afl.png';
-    if (name.includes('nfl')) return '/sport-logo/NFL.png';
-    if (name.includes('nhl')) return '/sport-logo/nhl.png';
-    if (name.includes('mlb')) return '/sport-logo/Major_League_Baseball.svg.png';
-    if (name.includes('fifa') || name.includes('world cup')) return '/sport-logo/fifa.jpg';
-    if (name.includes('formula 1') || name.includes('f1')) return '/sport-logo/formula-1.png';
-    return null;
-  }, [name]);
+  const logoUrl = getSportLogoUrl(sportName);
 
   const designFallback = useMemo(() => {
     if (name.includes('ufc') || name.includes('one championship') || name.includes('combat')) {
@@ -458,7 +507,7 @@ export default function Dashboard() {
         </div>
 
         {/* Dynamic Category List depending on Selected Tab */}
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap justify-center gap-2.5 w-full">
           {groupSports.length === 0 ? (
             <span className="text-xs text-slate-500 italic">No leagues available for this category.</span>
           ) : (
@@ -474,7 +523,7 @@ export default function Dashboard() {
                   key={sport.name}
                   onClick={() => !isDisabled && handleSportToggle(sport.name)}
                   disabled={isDisabled}
-                  className={`px-4.5 py-2 rounded-xl text-xs font-semibold uppercase tracking-wider border transition-all duration-200 ${
+                  className={`flex items-center gap-0 px-3.5 py-2 rounded-xl text-xs font-semibold uppercase tracking-wider border transition-all duration-300 group cursor-pointer ${
                     isChecked
                       ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                       : isDisabled
@@ -482,9 +531,14 @@ export default function Dashboard() {
                       : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
                   }`}
                 >
-                  {sport.fullName || sport.name}
-                  {isUnfinished && ' (Soon)'}
-                  {isUnavailable && !isUnfinished && ' (Empty)'}
+                  <FilterSportLogo sportName={sport.name} isChecked={isChecked} isDisabled={isDisabled} />
+                  
+                  {/* Animating Sliding Text container on Hover */}
+                  <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-300 group-hover:max-w-[400px] group-hover:ml-4">
+                    {sport.fullName || sport.name}
+                    {isUnfinished && ' (Soon)'}
+                    {isUnavailable && !isUnfinished && ' (Empty)'}
+                  </span>
                 </button>
               );
             })
@@ -597,8 +651,8 @@ export default function Dashboard() {
         {meta && meta.total > 0 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 glass-panel rounded-2xl mt-6 border-slate-800/60">
             <div className="text-xs text-slate-400">
-              Showing page <span className="font-semibold text-slate-200">{meta.page}</span> of{' '}
-              <span className="font-semibold text-slate-200">{meta.totalPages}</span> ({meta.total} matches)
+              Showing page <span className="font-semibold text-slate-200">{meta!.page}</span> of{' '}
+              <span className="font-semibold text-slate-200">{meta!.totalPages}</span> ({meta!.total} matches)
             </div>
 
             <div className="flex flex-wrap items-center gap-4">
@@ -620,8 +674,8 @@ export default function Dashboard() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageChange(meta.page - 1)}
-                  disabled={meta.page <= 1}
+                  onClick={() => handlePageChange(meta!.page - 1)}
+                  disabled={meta!.page <= 1}
                   className="py-1 px-3 text-xs"
                 >
                   Previous
@@ -630,8 +684,8 @@ export default function Dashboard() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageChange(meta.page + 1)}
-                  disabled={meta.page >= meta.totalPages}
+                  onClick={() => handlePageChange(meta!.page + 1)}
+                  disabled={meta!.page >= meta!.totalPages}
                   className="py-1 px-3 text-xs"
                 >
                   Next
